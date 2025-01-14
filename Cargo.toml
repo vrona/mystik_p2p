@@ -1,0 +1,14 @@
+[package]
+name = "intnet"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+
+[workspace]
+members = [ "example",
+    "file-sharing",
+    "ghost-ground",
+    "ghost-space",
+]

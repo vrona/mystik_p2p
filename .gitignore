@@ -1,0 +1,26 @@
+/target
+
+# folder
+/content_test
+/ghost-space/output_test
+/output_test
+/example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*db.sqlite
+
+node_modules
+dist
+dist-ssr
+*.local
+
+
+.DS_Store
+yarn.lock

@@ -424,7 +424,7 @@ impl EventLoop {
 
                                     tracing::debug!("Write side of the stream successfully closed.");
 
-                                    let raw_final_path = format!("/Volumes/vrona_SSD/intnet/output_test/{}", file_name);
+                                    let raw_final_path = format!("data/{}", file_name);
                                     let final_path = std::path::Path::new(&raw_final_path);
                                     tracing::debug!("Calling receive_file_with_hash for file: {:?}", final_path);
 

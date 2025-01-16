@@ -3,7 +3,7 @@
 # folder
 /content_test
 /ghost-space/output_test
-/output_test
+*/data/*
 /example
 
 # Logs

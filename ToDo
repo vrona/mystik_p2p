@@ -1,0 +1,8 @@
+# Folder of storage
+# Transmit from Node A to B the listening Node (avoid hard code)
+# Persistent storage mechanism (with CID)
+# Encryption of content
+# Metadata organization and storage
+# FHE of Metadata (ask to DHT)
+# Client router to access node's command
+# Deployment on Docker

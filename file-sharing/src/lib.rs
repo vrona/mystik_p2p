@@ -134,6 +134,13 @@ impl RunOption {
                     async move { network_client.request_file(p, name).await }.boxed()
                 });
 
+                let _ = futures::future::select_ok(requests)
+                    .await
+                    .map_err(|_| "None of the providers returned file.")?
+                    .0;
+
+                /*
+                let requests = ... ^^;
                 let file_content = futures::future::select_ok(requests)
                     .await
                     .map_err(|_| "None of the providers returned file.")?
@@ -145,6 +152,7 @@ impl RunOption {
                 std::fs::write(&out_path, &file_content)?;
                 println!("File written to {:?}", out_path);
                 // std::io::stdout().write_all(&file_content)?;
+                */
             }
         }
         Ok(())}

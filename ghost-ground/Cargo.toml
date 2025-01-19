@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.42.0", features = ["full"] }
+content-hashing = {path = "../content-hashing" }
 file-sharing = {path = "../file-sharing" }

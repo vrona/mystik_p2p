@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Error as AnyhowError};
-use crate::chunkblake::receive_file_with_hash;
+use crate::blakecheck::receive_file_with_hash;
 // use std::io::Write;
 
 use std::{
@@ -62,7 +62,7 @@ pub(crate) async fn new(
         .with_behaviour(|key| Behaviour {
             kademlia: kad::Behaviour::new(
                 peer_id,
-                kad::store::MemoryStore::new(key.public().to_peer_id()),
+                kad::store::MemoryStore::new(key.public().to_peer_id()), // RecordStore for Persistent Storage.
             ),
             stream: stream::Behaviour::new(),
         })?

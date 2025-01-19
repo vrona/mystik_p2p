@@ -1,6 +1,6 @@
 
 pub mod network;
-pub mod chunkblake;
+pub mod blakecheck;
 
 use std::{error::Error, path::PathBuf}; //,
 
@@ -98,7 +98,7 @@ impl RunOption {
                                 tracing::debug!("Inbound request from {peer} matched our file '{file_name}'. Calling send_file_with_hash now!");
                                  // 1) We want to send that file in chunks with BLAKE3 verification.
                                 // So we call chunkblake::send_file_with_hash:
-                                match chunkblake::send_file_with_hash(stream, path).await {
+                                match blakecheck::send_file_with_hash(stream, path).await {
                                     Ok(()) => {
                                         tracing::debug!("Sent file {} to peer {:?}", name, peer);
                                     }

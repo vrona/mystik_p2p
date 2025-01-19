@@ -3,6 +3,8 @@
 # folder
 /content_test
 /ghost-space/output_test
+*/data_enc/*
+*/data_dec/*
 */data/*
 /example
 

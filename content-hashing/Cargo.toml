@@ -1,0 +1,17 @@
+[package]
+name = "content-hashing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aead = {version = "0.5.2", features = ["alloc", "getrandom", "stream"]}
+aes-gcm = { version = "0.10.3", features = ["rand_core"] }
+aes = "0.8.4"
+anyhow = "1.0.95"
+blake3 = "1.5.5"
+hex = "0.4.3"
+multihash = "0.19.3"
+multihash-codetable = {version = "0.1.4", features = ["sha2"]}
+rand = "0.8.5"
+tokio = { version = "1.42.0", features = ["full"] }
+typenum = "1.17.0"

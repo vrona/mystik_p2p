@@ -1,6 +1,6 @@
 - [x] Folder of storage (data/)
 - [x] Persistent storage mechanism (with CID)
-- [ ] Encryption of content
+- [x] Encryption of content
 - [ ] Metadata organization and storage
 - [ ] When Blake3 verification (add sign the Hash: To ensure authenticity and prevent tampering, sign the hash with a private key (e.g., using Ed25519) and have the receiver verify the signature.)
 - [ ] Transmit from Node A to B the listening Node (avoid hard code)

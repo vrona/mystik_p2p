@@ -1,18 +1,18 @@
-use core::hash;
 use std::fs::{self, File};
-use std::io::{self, Read, Write, BufReader, BufWriter};
+use std::io::{Read, Write, BufReader, BufWriter};
 use std::path::Path;
-use blake3::{hash, Hasher};
+use blake3::Hasher;
+use std::result::Result::Ok;
 
-use anyhow::{anyhow, Error, Ok, Result};
+use anyhow::{anyhow, Error, Result};
 
 use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
 
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305};
 use rand::RngCore;
 
-const BUFFER_SIZE: usize = 64 * 1024;
 const STORAGE_DIR: &str = "../content-hashing/data/";
+const BUFFER_SIZE: usize = 1024 * 2048;
 
 ///// CRYPTOGRAPHY SECTION
 async fn newkey() -> Result<([u8; 32], [u8; 19]), Error> {
@@ -35,15 +35,15 @@ async fn encrypt_file(
     
     let mut hasher = Hasher::new();
 
+    let tmp_output_path = format!("{}encdoc.tmp", STORAGE_DIR);
+    
+    let mut tmp_output = BufWriter::new(File::create(&tmp_output_path)?);
+
     let cipher = XChaCha20Poly1305::new(key.as_ref().into());
     
     let mut stream_encryptor = EncryptorBE32::from_aead(cipher, nonce.as_ref().into());
 
     let mut input = BufReader::new(File::open(input_path)?);
-
-    let tmp_output_path = format!("{}encdoc.tmp", STORAGE_DIR);
-    
-    let mut tmp_output = BufWriter::new(File::create(&tmp_output_path)?);
 
     let mut buffer = [0u8; BUFFER_SIZE];
 
@@ -51,15 +51,17 @@ async fn encrypt_file(
         let read_bytes = input.read(&mut buffer)?;
         
         if read_bytes == BUFFER_SIZE {
+
             let ciphertext = stream_encryptor
                 .encrypt_next(buffer.as_slice())
                 .map_err(|e|anyhow!("Failed to encrypt ciphertext chunk {}", e))?;
             tmp_output.write(&ciphertext)?;
             hasher.update(&ciphertext);
+
         } else {
 
             let ciphertext = stream_encryptor
-                .encrypt_last((&buffer[..read_bytes]))
+                .encrypt_last(&buffer[..read_bytes])
                 .map_err(|e| anyhow!("Failed to encrypt last chunk {}", e))?;
             tmp_output.write(&ciphertext)?;
             hasher.update(&ciphertext);
@@ -77,7 +79,7 @@ async fn encrypt_file(
     // let final_output = BufWriter::new(File::create(&output_path)?);
     // println!("final_output: {:?}", final_output);
     let storage_path = format!("{:}/{}/{}.bin", STORAGE_DIR, metadata, cid);
-    println!("storage_path: {}", storage_path);
+    println!("storage_path: CID {}", cid);
 
     // Ensure the parent directory is created.
     //fs::create_dir_all(&storage_path)?;
@@ -102,30 +104,43 @@ async fn decrypt_file(
     output_path: &str
 ) -> Result<(), Error> {
    
-    let cipher = XChaCha20Poly1305::new(key.as_ref().into());
-    
-    let mut stream_decryptor = DecryptorBE32::from_aead(cipher, nonce.as_ref().into());
-
     let input_doc_path = format!("{}{}/{}.bin", STORAGE_DIR, metadata, cid);
-    let file_enc_content = fs::read(&input_doc_path)?;
+
+    let mut file_encrypted = File::open(&input_doc_path)
+        .map_err(|e|anyhow!("Failed to open file_encrypted {}", e))?;
+    
+    let mut buffer_check = vec![0u8; BUFFER_SIZE + 16];
+
     let mut hasher = Hasher::new();
-    hasher.update(&file_enc_content);
+
+    loop {
+        let n = file_encrypted.read(&mut buffer_check)?;
+        if n == 0 {
+            break
+        }
+        hasher.update(&buffer_check[..n]);   
+    }
+    
     let compare_cid = hasher.finalize().to_hex().to_string();
 
     if compare_cid != cid {
         return Err(anyhow!("File content hash does not match CID"))
     }
 
-    let mut input = BufReader::new(File::open(input_doc_path)?);
+    let cipher = XChaCha20Poly1305::new(key.as_ref().into());
+    
+    let mut stream_decryptor = DecryptorBE32::from_aead(cipher, nonce.as_ref().into());
+
+    let mut input = BufReader::new(File::open(&input_doc_path)?);
     
     let mut output = BufWriter::new(File::create(output_path)?);
 
-    let mut buffer = [0u8; BUFFER_SIZE + 16]; // +16 for tag overhead
+    let mut buffer = vec![0u8; BUFFER_SIZE + 16]; // +16 for tag overhead
 
     loop {
         let read_bytes = input.read(&mut buffer)?;
 
-        if read_bytes == BUFFER_SIZE {
+        if read_bytes == BUFFER_SIZE + 16 {
 
             let cleartext = stream_decryptor
                 .decrypt_next(buffer.as_slice())
@@ -138,13 +153,16 @@ async fn decrypt_file(
         } else {
 
             let cleartext = stream_decryptor
-                .decrypt_last((&buffer[..read_bytes]))
+                .decrypt_last(&buffer[..read_bytes])
                 .map_err(|e| anyhow!("Failed to decrypt last chunk {}", e))?;
             output.write(&cleartext)?;
             break;
         }
+    
+        output.flush()?;
+
     }
-    output.flush()?;
+
     Ok(())
 }
 
@@ -153,9 +171,12 @@ async fn decrypt_file(
 async fn main() -> Result<(), Error>{
 
     let (new_key, new_nonce) = newkey().await?;
-
-    let cid = encrypt_file(&new_key, &new_nonce, "../ghost-ground/data/smallstuff.txt", "mission").await?;
-    decrypt_file(&new_key, &new_nonce, &cid, "mission", "../content-hashing/data_dec/smallstuff.txt").await?;
+    let (_, new_nonce_2) = newkey().await?;
+    let mut rng = rand::thread_rng();
+    let mission = format!("{}",rng.next_u32());
+    let cid = encrypt_file(&new_key, &new_nonce, "../ghost-ground/data/mystikp2p.png", &mission).await?;
+    encrypt_file(&new_key, &new_nonce_2, "../ghost-ground/data/mystikp2p.png", &mission).await?;
+    decrypt_file(&new_key, &new_nonce, &cid, &mission, "../content-hashing/data_dec/mystikp2p.png").await?;
 
     Ok(())
 

@@ -4,7 +4,7 @@ use std::path::Path;
 use blake3::Hasher;
 use std::result::Result::Ok;
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, Error, Ok, Result};
 
 use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
 
@@ -24,6 +24,51 @@ async fn newkey() -> Result<([u8; 32], [u8; 19]), Error> {
     OsRng.fill_bytes(&mut nonce);
     
     Ok((key, nonce))
+}
+
+async fn check_cid(enc: bool, cid: Option<&str>) -> Result<(bool), Error>{
+
+    if enc {
+        
+        if let Some(value) = cid {
+
+            let searching_cid = format!("{}.bin", value);
+
+            // Iterate over the encrypted data directory 
+            match fs::read_dir(STORAGE_DIR) {
+                
+                Ok(entries) => {
+                    let mut found = false;
+                    
+                    for entry in entries {
+                        if let Ok(entry) = entry {
+                            let path = entry.path();
+
+                            if let Some(name) = path.file_name() {
+                                if name == searching_cid {
+
+                                    //return Err(anyhow!("Encrypted document already exist at {}", searching_cid))
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                if !found{
+                    println!("File not found for CID: {}", value);
+                }
+            }
+            Err(e) => println!("Error reading directory: {}", e),
+            }
+            println!("CID provided: {}", value);
+        } else {
+            println!("No CID provided");
+        }
+    
+    
+    }
+
+    Ok(())
 }
 
 /// Encrypt file
@@ -113,6 +158,7 @@ async fn decrypt_file(
 
     let mut hasher = Hasher::new();
 
+    //
     loop {
         let n = file_encrypted.read(&mut buffer_check)?;
         if n == 0 {
@@ -126,6 +172,7 @@ async fn decrypt_file(
     if compare_cid != cid {
         return Err(anyhow!("File content hash does not match CID"))
     }
+    //
 
     let cipher = XChaCha20Poly1305::new(key.as_ref().into());
     
@@ -171,11 +218,11 @@ async fn decrypt_file(
 async fn main() -> Result<(), Error>{
 
     let (new_key, new_nonce) = newkey().await?;
-    let (_, new_nonce_2) = newkey().await?;
     let mut rng = rand::thread_rng();
+    
     let mission = format!("{}",rng.next_u32());
+
     let cid = encrypt_file(&new_key, &new_nonce, "../ghost-ground/data/mystikp2p.png", &mission).await?;
-    encrypt_file(&new_key, &new_nonce_2, "../ghost-ground/data/mystikp2p.png", &mission).await?;
     decrypt_file(&new_key, &new_nonce, &cid, &mission, "../content-hashing/data_dec/mystikp2p.png").await?;
 
     Ok(())

@@ -4,7 +4,7 @@ use std::path::Path;
 use blake3::Hasher;
 use std::result::Result::Ok;
 
-use anyhow::{anyhow, Error, Ok, Result};
+use anyhow::{anyhow, Error, Result};
 
 use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
 
@@ -26,49 +26,98 @@ async fn newkey() -> Result<([u8; 32], [u8; 19]), Error> {
     Ok((key, nonce))
 }
 
-async fn check_cid(enc: bool, cid: Option<&str>) -> Result<(bool), Error>{
-
-    if enc {
-        
-        if let Some(value) = cid {
-
-            let searching_cid = format!("{}.bin", value);
-
-            // Iterate over the encrypted data directory 
-            match fs::read_dir(STORAGE_DIR) {
-                
-                Ok(entries) => {
-                    let mut found = false;
-                    
-                    for entry in entries {
-                        if let Ok(entry) = entry {
-                            let path = entry.path();
-
-                            if let Some(name) = path.file_name() {
-                                if name == searching_cid {
-
-                                    //return Err(anyhow!("Encrypted document already exist at {}", searching_cid))
-                                    found = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                if !found{
-                    println!("File not found for CID: {}", value);
-                }
-            }
-            Err(e) => println!("Error reading directory: {}", e),
-            }
-            println!("CID provided: {}", value);
-        } else {
-            println!("No CID provided");
-        }
+async fn check_cid(encryption_case: bool, cid: Option<&str>, input_doc_path: Option<&str>) -> Result<bool, Error>{
+    /*
+    2 different behaviors:
+    - encryption case: chech_cid(true, cid needed), encryption is aborded if:
+        > data folder or CID not provided,
+        > CID founded in data folder. 
     
-    
+    - Decryption case: chech_cid(false, input_doc_path needed), decryption is aborded if:
+        > input_doc_path not provided,
+        > CID not founded in data folder. 
+    */
+
+    // while in encryption case
+    if encryption_case {
+    if input_doc_path.is_none() {
+        println!("Encryption case: No CID provided");
+        return Ok(false);
+    }
+    let value = input_doc_path.unwrap();
+
+    if !fs::exists(value)? {
+        //println!("Mission does not exist yet");
+        return Ok(false);
     }
 
-    Ok(())
+    // Iterate over the encrypted data directory
+    let entries = match fs::read_dir(value) {
+        Ok(entries) => entries,
+        Err(e) => {
+            println!("Encryption case: Error reading directory: {}", e);
+            return Ok(false);
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue, // Skip invalid entries
+        };
+
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if let Some(value_cid) = cid {
+                let file_cid = format!("{}.bin", value_cid);
+                if name == file_cid {
+                    //println!("Encryption case: CID: {} been found", value);
+                    return Ok(true);
+                }
+            }
+        }
+    }
+
+    // CID not found
+    return Ok(false);
+    
+    
+    } else {
+        // while in decryption case
+        
+        if let Some(value) = input_doc_path {
+            if !fs::exists(value)? {
+                println!("Document does not exist at this path.");
+                return Ok(false);
+            }
+
+            let mut file_encrypted = File::open(value)
+                .map_err(|e| anyhow!("Failed to open file_encrypted {}", e))?;
+
+            let mut buffer_check = vec![0u8; BUFFER_SIZE + 16];
+            let mut hasher = Hasher::new();
+
+            while let Ok(n) = file_encrypted.read(&mut buffer_check) {
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&buffer_check[..n]);
+            }
+
+            if let Some(expected_cid) = cid {
+                let tmp_cid = hasher.finalize().to_hex().to_string();
+                if tmp_cid != expected_cid {
+                    println!("Decryption case: File content hash does not match CID");
+                    return Ok(false);
+                } else {
+                    return Ok(true);
+                }
+            }
+        }
+        println!("Decryption case: No input doc path provided");
+        Ok(false)
+    }
+
 }
 
 /// Encrypt file
@@ -90,7 +139,7 @@ async fn encrypt_file(
 
     let mut input = BufReader::new(File::open(input_path)?);
 
-    let mut buffer = [0u8; BUFFER_SIZE];
+    let mut buffer = vec![0u8; BUFFER_SIZE];
 
     loop {
         let read_bytes = input.read(&mut buffer)?;
@@ -112,32 +161,38 @@ async fn encrypt_file(
             hasher.update(&ciphertext);
             break;
         }
-                
+    
         tmp_output.flush()?;
     }
 
     // finalize the hash and get the CID
     let cid = hasher.finalize().to_hex().to_string();
 
-    // move the file to the storage folder based on CID
-    
-    // let final_output = BufWriter::new(File::create(&output_path)?);
-    // println!("final_output: {:?}", final_output);
-    let storage_path = format!("{:}/{}/{}.bin", STORAGE_DIR, metadata, cid);
-    println!("storage_path: CID {}", cid);
+    // CHECK existence of CID in data storage
+    let cid_path = format!("{}{}/", STORAGE_DIR, metadata);
 
-    // Ensure the parent directory is created.
-    //fs::create_dir_all(&storage_path)?;
+    let is_cid_exist = check_cid(true, Some(&cid), Some(&cid_path)).await?;
 
-    if let Some(parent) = Path::new(&storage_path).parent(){
-        fs::create_dir_all(parent)?;
+    if !is_cid_exist {
+        
+        let final_path = format!("{}{}.bin", cid_path, cid);
+
+        // Ensure the parent directory is created.
+        if let Some(parent) = Path::new(&final_path).parent(){
+            fs::create_dir_all(parent)?;
+        } else {
+            return Err(anyhow!("Failed to created path because of non existing parent"))
+        }
+        // Move/rename the .tmp file to the final path
+        fs::rename(&tmp_output_path, &final_path)?;
+
+        println!("Encryption done!");
+        Ok(cid)
+
     } else {
-        return Err(anyhow!("Failed to created path because of non existing parent"))
+        fs::remove_file(&tmp_output_path)?;
+        return Err(anyhow!("Document already exist, upload and encryption aborded."))
     }
-    // Move/rename the .tmp file to the final path
-    fs::rename(&tmp_output_path, &storage_path)?;
-
-    Ok(cid)
 }
 
 
@@ -151,63 +206,46 @@ async fn decrypt_file(
    
     let input_doc_path = format!("{}{}/{}.bin", STORAGE_DIR, metadata, cid);
 
-    let mut file_encrypted = File::open(&input_doc_path)
-        .map_err(|e|anyhow!("Failed to open file_encrypted {}", e))?;
+    // CHECK existence of CID in data storage
+    let is_cid_exist = check_cid(false, Some(&cid), Some(&input_doc_path)).await?;
+
+    if is_cid_exist {
+
+        let cipher = XChaCha20Poly1305::new(key.as_ref().into());
     
-    let mut buffer_check = vec![0u8; BUFFER_SIZE + 16];
+        let mut stream_decryptor = DecryptorBE32::from_aead(cipher, nonce.as_ref().into());
 
-    let mut hasher = Hasher::new();
+        let mut input = BufReader::new(File::open(&input_doc_path)?);
+        
+        let mut output = BufWriter::new(File::create(output_path)?);
 
-    //
-    loop {
-        let n = file_encrypted.read(&mut buffer_check)?;
-        if n == 0 {
-            break
+        let mut buffer = vec![0u8; BUFFER_SIZE + 16]; // +16 for tag overhead
+
+        loop {
+            let read_bytes = input.read(&mut buffer)?;
+
+            if read_bytes == BUFFER_SIZE + 16 {
+
+                let cleartext = stream_decryptor
+                    .decrypt_next(buffer.as_slice())
+                    .map_err(|e|anyhow!("Failed to decrypt cleartext chunk {}", e))?;
+                output.write(&cleartext)?;
+
+            } else if read_bytes == 0 {
+                break
+
+            } else {
+
+                let cleartext = stream_decryptor
+                    .decrypt_last(&buffer[..read_bytes])
+                    .map_err(|e| anyhow!("Failed to decrypt last chunk {}", e))?;
+                output.write(&cleartext)?;
+                break;
+            }
+            output.flush()?;
         }
-        hasher.update(&buffer_check[..n]);   
-    }
-    
-    let compare_cid = hasher.finalize().to_hex().to_string();
 
-    if compare_cid != cid {
-        return Err(anyhow!("File content hash does not match CID"))
-    }
-    //
-
-    let cipher = XChaCha20Poly1305::new(key.as_ref().into());
-    
-    let mut stream_decryptor = DecryptorBE32::from_aead(cipher, nonce.as_ref().into());
-
-    let mut input = BufReader::new(File::open(&input_doc_path)?);
-    
-    let mut output = BufWriter::new(File::create(output_path)?);
-
-    let mut buffer = vec![0u8; BUFFER_SIZE + 16]; // +16 for tag overhead
-
-    loop {
-        let read_bytes = input.read(&mut buffer)?;
-
-        if read_bytes == BUFFER_SIZE + 16 {
-
-            let cleartext = stream_decryptor
-                .decrypt_next(buffer.as_slice())
-                .map_err(|e|anyhow!("Failed to decrypt cleartext chunk {}", e))?;
-            output.write(&cleartext)?;
-
-        } else if read_bytes == 0 {
-            break
-
-        } else {
-
-            let cleartext = stream_decryptor
-                .decrypt_last(&buffer[..read_bytes])
-                .map_err(|e| anyhow!("Failed to decrypt last chunk {}", e))?;
-            output.write(&cleartext)?;
-            break;
-        }
-    
-        output.flush()?;
-
+    println!("Decryption done!");
     }
 
     Ok(())
@@ -220,11 +258,18 @@ async fn main() -> Result<(), Error>{
     let (new_key, new_nonce) = newkey().await?;
     let mut rng = rand::thread_rng();
     
+    //let (new_key2, _) = newkey().await?;
     let mission = format!("{}",rng.next_u32());
 
     let cid = encrypt_file(&new_key, &new_nonce, "../ghost-ground/data/mystikp2p.png", &mission).await?;
+    // encrypt_file(&new_key, &new_nonce, "../ghost-ground/data/mystikp2p.png", &mission).await?;
+    
     decrypt_file(&new_key, &new_nonce, &cid, &mission, "../content-hashing/data_dec/mystikp2p.png").await?;
+    // decrypt_file(&new_key, &new_nonce, "d83145dc624fe9f277b8bdafbe0fcf5f1ebaa1f216040112ed84e14b38e8dfa2", &mission, "../content-hashing/data_dec/mystikp2p.png").await?;
+
+    
+
+    
 
     Ok(())
-
 }

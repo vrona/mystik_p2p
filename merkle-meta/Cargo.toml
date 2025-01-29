@@ -1,6 +1,13 @@
 [package]
 name = "merkle-meta"
 version = "0.1.0"
+author = ["VRONA | The Decentralized Intelligence Lab <travis@vrona.xyz>"]
+description = "Merkle Tree applied to metadata"
+repository = "https://github.com/vrona/intnet"
 edition = "2021"
 
+
 [dependencies]
+trie-db = "0.29.1"
+hash-db = "0.16.0"
+parity-db = "0.5.0"

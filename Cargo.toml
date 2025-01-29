@@ -12,4 +12,5 @@ members = [
     "file-sharing",
     "ghost-ground",
     "ghost-space", "merkle-meta",
+    "merkle-meta",
 ]

@@ -265,11 +265,7 @@ async fn main() -> Result<(), Error>{
     // encrypt_file(&new_key, &new_nonce, "../ghost-ground/data/mystikp2p.png", &mission).await?;
     
     decrypt_file(&new_key, &new_nonce, &cid, &mission, "../content-hashing/data_dec/mystikp2p.png").await?;
-    // decrypt_file(&new_key, &new_nonce, "d83145dc624fe9f277b8bdafbe0fcf5f1ebaa1f216040112ed84e14b38e8dfa2", &mission, "../content-hashing/data_dec/mystikp2p.png").await?;
-
-    
-
-    
+    // decrypt_file(&new_key, &new_nonce, "d83145dc624fe9f277b8bdafbe0fcf5f1ebaa1f216040112ed84e14b38e8dfa2", &mission, "../content-hashing/data_dec/mystikp2p.png").await?;    
 
     Ok(())
 }

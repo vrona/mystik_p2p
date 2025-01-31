@@ -1,17 +1,18 @@
 use std::{any::{Any, TypeId}, path::Path};
-use rs_merkle::{self, algorithms::Sha256, Hasher as MerkleHasher};
+use anyhow::{Ok, Result};
+use rs_merkle::{self, algorithms::Sha256, Hasher as MerkleHasher, MerkleTree};
 
 use monotree::{
     database::sled::Sled,
     hasher::{Blake3, Hasher},
     verify_proof,
-    Result,
+    Result as MonoTResult,
     Errors,
     Monotree
 };
 
-mod rsmerkle;
-use rsmerkle::PersistentMetaMerkle;
+mod storersmerkle;
+use storersmerkle::{RSMerkleTree, PersistentMetaMerkle};
 
 const STORAGE_MIDCID: &str = "../merkle-meta/midtocid/";
 
@@ -22,6 +23,7 @@ struct Metadata {
     mission: String,
     // file_key: Vec<u8>,
     // file_nonce: Vec<u8>,
+    cid: String,
 }
 
 impl Metadata {
@@ -30,22 +32,20 @@ impl Metadata {
         file_type: String,
         mission: String,
         // file_key: Vec<u8>,
-        // file_nonce: Vec<u8>,
-
-
-    ) -> Self {
+        // file_nonce: Vec<u8>
+        cid: String,
+    ) -> Self {      
         Self {
             file_name,
             file_type,
             mission,
+            cid,
             // file_key,
             // file_nonce,
-
         }
     }
 
-
-    // fn hashing(&self, single_meta: String) -> Result<[u8; 32]> {
+    // fn hashing(&self, single_meta: String) -> MonoTResult<[u8; 32]> {
     //     let hasher = Blake3::new();
 
     //     let hash = hasher.digest(&single_meta.as_bytes());
@@ -62,7 +62,17 @@ impl Metadata {
         return Ok(leaves)
     }
 
-    // fn key_hashing(&self) -> Result<[u8; 32]> {
+    // Create tree
+
+    fn create_tree(&self) -> Result<()>{
+        let leaves = self.leaf_hashing()?;//.expect("Failed to Metadata leaves");
+        let new_tree = RSMerkleTree::new(leaves);
+
+        Ok(())
+
+    }
+
+    // fn key_hashing(&self) -> MonoTResult<[u8; 32]> {
 
     //     let leafs = self.leaf_hashing()?;
     //     let hasher_key = Blake3::new();
@@ -87,7 +97,7 @@ struct MerkleMetaTree {
 impl MerkleMetaTree {
 
     // init the Monotree instance (database > tree and root)
-    fn new() -> Result<Self>{
+    fn new() -> MonoTResult<Self>{
         
         let newtree = Monotree::<Sled, Blake3>::new(STORAGE_MIDCID);
 
@@ -98,19 +108,19 @@ impl MerkleMetaTree {
     }
 
     // insert key-leaf pair into the tree
-    fn insert(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> Result<()> {
+    fn insert(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> MonoTResult<()> {
         self.root = self.tree.insert(self.root.as_ref(), &key, &leaf)?;
         Ok(())
     }
 
     // remove en entry (aka a key) from the tree
-    fn remove(&mut self, key: &[u8]) -> Result<()> {
+    fn remove(&mut self, key: &[u8]) -> MonoTResult<()> {
         self.root = self.tree.remove(self.root.as_ref(), &key)?;
         Ok(())
     }
 
     // get (or find) a leaf or a leaf for a given leaf from the tree
-    fn get(&mut self, key: &[u8; 32]) -> Result<Option<[u8; 32]>> {
+    fn get(&mut self, key: &[u8; 32]) -> MonoTResult<Option<[u8; 32]>> {
         
         match self.tree.get(self.root.as_ref(), &key)? {
             Some(leaf) => Ok(Some(leaf)),
@@ -119,13 +129,13 @@ impl MerkleMetaTree {
     }
 
     // generate the Merkle proof for the root and the key
-    fn proof(&mut self, key: &[u8; 32]) -> Result<Option<Vec<(bool, Vec<u8>)>>> {
+    fn proof(&mut self, key: &[u8; 32]) -> MonoTResult<Option<Vec<(bool, Vec<u8>)>>> {
         let proof = self.tree.get_merkle_proof(self.root.as_ref(), key)?;
         return Ok(proof)
     }
 
     // generate the Merkle proof for the root and the key
-    fn verify_merkle_proof(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> Result<bool> {
+    fn verify_merkle_proof(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> MonoTResult<bool> {
         let protocol_hash = Blake3::new();
         let proved_key = self.proof(key)?;
         let verified = verify_proof(&protocol_hash, self.root.as_ref(), &leaf, proved_key.as_ref());
@@ -134,17 +144,15 @@ impl MerkleMetaTree {
 
 }
 
-fn main() -> Result<()> {
+fn main() -> MonoTResult<()> {
     
     let file_name = "ObserveThis".to_string();
     let file_type = "txt".to_string();
     let mission = "BCX451".to_string();
-    // let cid = "bafy...".to_string();
-    // let file_key = vec![1, 2, 3, 4];
-    // let file_nonce = vec![5, 6, 7, 8];
-    // let timestamp = 1670000000;
+    let cid = "b5af00meed83xdb47".to_string();
 
-    let metadata = Metadata::new(file_name, file_type, mission);
+
+    let metadata = Metadata::new(file_name, file_type, mission, cid);
     let leafs = metadata.leaf_hashing()?;
     let leafone = leafs[0];
     // for leaf in leafs {
@@ -157,7 +165,6 @@ fn main() -> Result<()> {
    tree.insert(&key, &leafone)?;
    
    // define root hash
-
 
    // create a merkle trie using Blake3TrieHasher
    //let mut trie = TrieDBMut::<KeccakHasher>::new(&mut db, &mut root);

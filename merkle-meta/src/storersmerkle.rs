@@ -4,21 +4,41 @@ use std::{fs, io::Write, path::Path};
 
 const STORAGE_METADATA: &str = "../merkle-meta/metamerkle/";
 
-pub struct PersistentMetaMerkle{
-    storage_path: String,
-    tree: MerkleTree<Sha256>
+pub struct RSMerkleTree{
+    leaves: Vec<[u8; 32]>,
+    rs_tree: MerkleTree<Sha256>,
+    rs_root: Option<[u8; 32]>,
 }
 
-impl PersistentMetaMerkle {
+impl RSMerkleTree {
+
+    pub fn new(leaves: Vec<[u8; 32]>) -> Self{
+        let rs_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
+        let rs_root = rs_tree.root();
+
+        Self{
+            leaves,
+            rs_tree,
+            rs_root,
+        }
+    }
+}    
+
+pub struct PersistentMetaMerkle<'a> {
+    storage_path: String,
+    tree: &'a mut MerkleTree<Sha256>
+}
+
+impl <'a>PersistentMetaMerkle<'a> {
     
 
-    fn new(cid_storage: &str) -> Self{
+    fn new(cid_storage: &str, tree: &'a mut MerkleTree<Sha256>) -> Self{
         let storage_meta_cid = format!("{}{}/", STORAGE_METADATA, cid_storage);
         fs::create_dir_all(&storage_meta_cid).unwrap();
         
         Self {
             storage_path: storage_meta_cid,
-            tree: MerkleTree::<Sha256>::new(),
+            tree,
         }
     }
 
@@ -41,13 +61,10 @@ impl PersistentMetaMerkle {
     // save the tree structure
     fn save_tree(&mut self) {
         let db_path = format!("{}/tree.bin", self.storage_path);
+
         self.tree.commit();
         let data = bincode::serialize(&self.tree.leaves().unwrap()).expect("Failed to serialize tree");
         fs::write(db_path, data).expect("Failed to write serialize tree");
-    }
-
-    fn save_snapshot() {
-        
     }
 
     fn load_tree(&mut self, cid_storage: &str) {

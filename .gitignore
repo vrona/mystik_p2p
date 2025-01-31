@@ -6,6 +6,8 @@
 */data_enc/*
 */data_dec/*
 */data/*
+*/merkle-meta/metamerkle/*
+*merkle-meta/midtocid/*
 /example
 
 # Logs

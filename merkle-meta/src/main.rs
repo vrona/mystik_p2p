@@ -1,5 +1,5 @@
-use std::{any::{Any, TypeId}, path::Path};
-use anyhow::{Ok, Result};
+use std::{any::{Any, TypeId}, error::Error, result::Result, path::Path};
+
 use rs_merkle::{self, algorithms::Sha256, Hasher as MerkleHasher, MerkleTree};
 
 use monotree::{
@@ -16,14 +16,16 @@ use storersmerkle::{RSMerkleTree, PersistentMetaMerkle};
 
 const STORAGE_MIDCID: &str = "../merkle-meta/midtocid/";
 
-
 struct Metadata {
     file_name: String,
     file_type: String,
     mission: String,
+    cid: String,
+    merkletree: Option<MerkleTree<Sha256>>,
+    persistentstorage: Option<PersistentMetaMerkle>,
     // file_key: Vec<u8>,
     // file_nonce: Vec<u8>,
-    cid: String,
+
 }
 
 impl Metadata {
@@ -31,77 +33,80 @@ impl Metadata {
         file_name: String,
         file_type: String,
         mission: String,
+        cid: String,
         // file_key: Vec<u8>,
         // file_nonce: Vec<u8>
-        cid: String,
-    ) -> Self {      
-        Self {
+
+    ) -> Result<Self, Box<dyn Error>> {
+        
+        let metadata = Metadata {
+            file_name: file_name.clone(),
+            file_type: file_type.clone(),
+            mission: mission.clone(),
+            cid: cid.clone(),
+            merkletree: None,
+            persistentstorage: None,
+        };
+        let leaves = metadata.leaf_hashing()?;
+
+        let mut merkletree = Some(RSMerkleTree::new(leaves)?);
+        
+        let persistentstorage = if let Some(tree) = &merkletree {
+            Some(PersistentMetaMerkle::new(&cid, tree.clone())?)
+        } else {
+            None
+        };
+        
+        Ok(Self {
             file_name,
             file_type,
             mission,
             cid,
+            merkletree,
+            persistentstorage,
             // file_key,
             // file_nonce,
-        }
+        })
     }
 
-    // fn hashing(&self, single_meta: String) -> MonoTResult<[u8; 32]> {
-    //     let hasher = Blake3::new();
-
-    //     let hash = hasher.digest(&single_meta.as_bytes());
-    //     return Ok(hash)
-    // }
-
     // Merkle tree
-    fn leaf_hashing(&self) -> Result<Vec<[u8; 32]>>{
+    pub(crate) fn leaf_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>>{
         let metadata = [&self.file_name, &self.file_type, &self.mission];
         let leaves: Vec<[u8; 32]> = metadata
             .iter()
             .map(|x| Sha256::hash(x.as_bytes()))
             .collect();
-        return Ok(leaves)
+        Ok(leaves)
     }
 
     // Create tree
 
-    fn create_tree(&self) -> Result<()>{
-        let leaves = self.leaf_hashing()?;//.expect("Failed to Metadata leaves");
-        let new_tree = RSMerkleTree::new(leaves);
+    // pub(crate) fn create_tree(&self) -> Result<(), anyhow::Error>{
+    //     let leaves = self.leaf_hashing()?;//.expect("Failed to Metadata leaves");
+    //     self.merkletree = RSMerkleTree::new(leaves).expect("Failed to init the metadata merkle tree");
 
-        Ok(())
+    //     let persistent_storage_metadata = PersistentMetaMerkle::new(&self.cid, & mut new_metadata_tree);
 
-    }
+    //     Ok(())
 
-    // fn key_hashing(&self) -> MonoTResult<[u8; 32]> {
-
-    //     let leafs = self.leaf_hashing()?;
-    //     let hasher_key = Blake3::new();
-    //     let mut concatened = Vec::new();
-        
-    //     for leaf in leafs {
-    //         concatened.extend_from_slice(&leaf);
-    //     }
-
-    //     let key_hash = hasher_key.digest(&concatened);
-
-    //     return Ok(key_hash)
     // }
+
 }
 
 
-struct MerkleMetaTree {
+struct MonoMetaTree {
     tree: Monotree<Sled, Blake3>,
     root: Option<[u8; 32]>,
 }
 
-impl MerkleMetaTree {
+impl MonoMetaTree {
 
     // init the Monotree instance (database > tree and root)
     fn new() -> MonoTResult<Self>{
         
         let newtree = Monotree::<Sled, Blake3>::new(STORAGE_MIDCID);
 
-        Ok(MerkleMetaTree{
+        Ok(MonoMetaTree{
             tree: newtree,
             root: None,
         })
@@ -144,7 +149,7 @@ impl MerkleMetaTree {
 
 }
 
-fn main() -> MonoTResult<()> {
+fn main() -> Result<(), Box<dyn Error>> {
     
     let file_name = "ObserveThis".to_string();
     let file_type = "txt".to_string();
@@ -152,7 +157,7 @@ fn main() -> MonoTResult<()> {
     let cid = "b5af00meed83xdb47".to_string();
 
 
-    let metadata = Metadata::new(file_name, file_type, mission, cid);
+    let metadata = Metadata::new(file_name, file_type, mission, cid)?;
     let leafs = metadata.leaf_hashing()?;
     let leafone = leafs[0];
     // for leaf in leafs {
@@ -161,7 +166,7 @@ fn main() -> MonoTResult<()> {
     let key = monotree::utils::random_hash();//metadata.key_hashing();
     //println!("Key:\n{:?}", key);
    // init Monotree instance with the persistent database (rocksdb) and hasher (blake3)
-   let mut tree = MerkleMetaTree::new()?;
+   let mut tree = MonoMetaTree::new()?;
    tree.insert(&key, &leafone)?;
    
    // define root hash

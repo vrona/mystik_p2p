@@ -1,4 +1,5 @@
 use rs_merkle::{self, algorithms::Sha256, Hasher, MerkleTree};
+use std::error::Error;
 
 use std::{fs, io::Write, path::Path};
 
@@ -7,39 +8,36 @@ const STORAGE_METADATA: &str = "../merkle-meta/metamerkle/";
 pub struct RSMerkleTree{
     leaves: Vec<[u8; 32]>,
     rs_tree: MerkleTree<Sha256>,
-    rs_root: Option<[u8; 32]>,
 }
 
 impl RSMerkleTree {
-
-    pub fn new(leaves: Vec<[u8; 32]>) -> Self{
+    pub(crate) fn new(leaves: Vec<[u8; 32]>) -> Result<MerkleTree<Sha256>, Box<dyn Error>> {
         let rs_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
-        let rs_root = rs_tree.root();
 
-        Self{
-            leaves,
-            rs_tree,
-            rs_root,
-        }
+        // Self {
+        //     leaves,
+        //     rs_tree : rs_tree.clone(),
+        // };
+        Ok(rs_tree)
     }
-}    
-
-pub struct PersistentMetaMerkle<'a> {
-    storage_path: String,
-    tree: &'a mut MerkleTree<Sha256>
 }
 
-impl <'a>PersistentMetaMerkle<'a> {
+pub struct PersistentMetaMerkle {
+    storage_path: String,
+    tree: MerkleTree<Sha256>
+}
+
+impl PersistentMetaMerkle {
     
 
-    fn new(cid_storage: &str, tree: &'a mut MerkleTree<Sha256>) -> Self{
+    pub(crate) fn new(cid_storage: &str, tree: MerkleTree<Sha256>) -> Result<Self, Box<dyn Error>>{
         let storage_meta_cid = format!("{}{}/", STORAGE_METADATA, cid_storage);
         fs::create_dir_all(&storage_meta_cid).unwrap();
-        
-        Self {
+
+        Ok (Self {
             storage_path: storage_meta_cid,
             tree,
-        }
+        })
     }
 
     // save metadata as individual leaf node

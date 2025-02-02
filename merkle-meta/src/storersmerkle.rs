@@ -1,4 +1,4 @@
-use rs_merkle::{self, algorithms::Sha256, Hasher, MerkleTree};
+use rs_merkle::{self, algorithms::Sha256, MerkleTree};
 use std::error::Error;
 
 use std::{fs, io::Write, path::Path};
@@ -14,81 +14,96 @@ impl RSMerkleTree {
     pub(crate) fn new(leaves: Vec<[u8; 32]>) -> Result<MerkleTree<Sha256>, Box<dyn Error>> {
         let rs_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
 
-        // Self {
-        //     leaves,
-        //     rs_tree : rs_tree.clone(),
-        // };
         Ok(rs_tree)
     }
 }
 
 pub struct PersistentMetaMerkle {
-    storage_path: String,
-    tree: MerkleTree<Sha256>
+    pub storage_path: String,
+    pub tree: MerkleTree<Sha256>
 }
 
 impl PersistentMetaMerkle {
     
 
-    pub(crate) fn new(cid_storage: &str, tree: MerkleTree<Sha256>) -> Result<Self, Box<dyn Error>>{
-        let storage_meta_cid = format!("{}{}/", STORAGE_METADATA, cid_storage);
-        fs::create_dir_all(&storage_meta_cid).unwrap();
+    pub fn new(tree: MerkleTree<Sha256>) -> Result<Self, Box<dyn Error>>{
+        let root_hex = tree.root_hex().expect("Failed to obtain root_hex");
+        let storage_roothex = format!("{}{}/", STORAGE_METADATA, root_hex);
+        fs::create_dir_all(&storage_roothex)?;
 
         Ok (Self {
-            storage_path: storage_meta_cid,
+            storage_path: storage_roothex,
             tree,
         })
     }
 
-    // save metadata as individual leaf node
-    fn save_leaf(&self, index: usize, metadata: &[u8]) {
+    // store metadata as individual leaf node
+    pub fn store_leaf(&self, index: usize, metadata: &[u8]) -> Result<(), Box<dyn Error>> {
         let leaf_path = format!("{}/leaf_{:04}.bin", self.storage_path, index);
-        let mut file = fs::File::create(leaf_path).unwrap();
-        file.write(metadata).unwrap();
+        let mut file = fs::File::create(leaf_path)?;
+        file.write(metadata)?;
+        Ok(())
     }
 
-    // save the root
-    fn save_root(&mut self) {
-        let db_path = format!("{}/root.bin", self.storage_path);
-        self.tree.commit();
-        let data = bincode::serialize(&self.tree.root().unwrap()).expect("Failed to serialize root");
-        fs::write(db_path, data).expect("Failed to write serialize root");
+    // store the root
+    pub fn store_root(&mut self) -> Result<(), Box<dyn Error>>{
         
+        self.tree.commit();
+        
+        if let Some(root) = self.tree.root() {
+            let db_path = format!("{}/root.bin", self.storage_path);
+            let data = bincode::serialize(&root)?;
+            fs::write(db_path, data)?;
+        } else {
+            return Err("Failed to retrieve Merkle root".into());
+        }
+
+        Ok(())
     }
 
-    // save the tree structure
-    fn save_tree(&mut self) {
+    // store the tree structure
+    pub fn store_tree(&mut self) -> Result<(), Box<dyn Error>>{
         let db_path = format!("{}/tree.bin", self.storage_path);
 
         self.tree.commit();
-        let data = bincode::serialize(&self.tree.leaves().unwrap()).expect("Failed to serialize tree");
+        let data = bincode::serialize(&self.tree.leaves())?;
         fs::write(db_path, data).expect("Failed to write serialize tree");
+
+        Ok(())
     }
 
-    fn load_tree(&mut self, cid_storage: &str) {
-        let storage_meta_cid = format!("{}{}/", STORAGE_METADATA, cid_storage);
-        let db_path = format!("{}/tree.bin", storage_meta_cid);
+    pub fn load_tree(root_hex_str: &str) -> Result<Self, Box<dyn Error>> {
+        let storage_roothex = format!("{}{}/", STORAGE_METADATA, root_hex_str);
+        let db_path = format!("{}/tree.bin", storage_roothex);
 
-        if Path::new(&db_path).exists() {
-            let data = fs::read(db_path).unwrap();
-            let mut leaves: Vec<[u8; 32]> = bincode::deserialize(&data).unwrap();
-            self.tree.append(&mut leaves);
+        if !Path::new(&db_path).exists() {
+            return Err(format!("Tree file not found at {}", db_path).into());
         }
+
+        let data = fs::read(db_path)?;
+        let leaves: Vec<[u8; 32]> = bincode::deserialize(&data)?;
+        let tree = MerkleTree::<Sha256>::from_leaves(&leaves);
+        
+        Ok (Self {
+            storage_path: storage_roothex,
+            tree,
+        })
+
     }
 
     /// Verifies if the stored root matches the reconstructed root
-    fn verify_tree(&mut self, cid_storage: &str) -> bool {
-        let storage_meta_cid = format!("{}{}/", STORAGE_METADATA, cid_storage);
-        let root_path = format!("{}/root.bin", storage_meta_cid);
+    pub fn verify_tree(&mut self, root_hex_str: &str) -> Result< bool, Box<dyn Error>> {
+        let storage_roothex = format!("{}{}/", STORAGE_METADATA, root_hex_str);
+        let root_path = format!("{}/root.bin", storage_roothex);
 
         self.tree.commit();
         
         if Path::new(&root_path).exists() {
-            let stored_root = fs::read(root_path).unwrap();
-            let computed_root = self.tree.root().unwrap();
-            return stored_root == computed_root;
+            let stored_root = fs::read(root_path)?;
+            let computed_root = self.tree.root().expect("No root founded");
+            return Ok(stored_root == computed_root);
         }
-        return false
+        return Ok(false)
     }
 }
 
@@ -106,7 +121,7 @@ impl PersistentMetaMerkle {
 
 //     // Save each metadata entry
 //     for (i, meta) in metadata_entries.iter().enumerate() {
-//         metadata_tree.save_leaf(i, meta);
+//         metadata_tree.store_leaf(i, meta);
 //     }
 
 //     // Add metadata to Merkle tree
@@ -115,8 +130,8 @@ impl PersistentMetaMerkle {
 //     metadata_tree.tree.commit();
 
 //     // Save the tree and its root
-//     metadata_tree.save_tree();
-//     metadata_tree.save_root();
+//     metadata_tree.store_tree();
+//     metadata_tree.store_root();
 
 //     println!("Metadata stored in folder '{}'", metadata_tree.storage_path);
 

@@ -21,8 +21,6 @@ struct Metadata {
     file_type: String,
     mission: String,
     cid: String,
-    merkletree: Option<MerkleTree<Sha256>>,
-    persistentstorage: Option<PersistentMetaMerkle>,
     // file_key: Vec<u8>,
     // file_nonce: Vec<u8>,
 
@@ -44,37 +42,29 @@ impl Metadata {
             file_type: file_type.clone(),
             mission: mission.clone(),
             cid: cid.clone(),
-            merkletree: None,
-            persistentstorage: None,
+ 
         };
         let leaves = metadata.leaf_hashing()?;
 
-        let merkletree = Some(RSMerkleTree::new(leaves.clone())?);
-        
-        let persistentstorage = if let Some(tree) = &merkletree {
-            Some(PersistentMetaMerkle::new(tree.clone())?)
+        let merkletree = RSMerkleTree::new(leaves.clone())?;
 
-        } else {
-            None
-        };
 
-       let mut instance = Self {
+        let mut persistentstorage = PersistentMetaMerkle::new(None, Some(merkletree))?;
+
+        let instance = Self {
             file_name,
             file_type,
             mission,
             cid,
-            merkletree,
-            persistentstorage,
         };
 
         // Store leaves, tree, and root
-        if let Some(ref mut storage) = instance.persistentstorage {
-            for (i, leaf) in leaves.iter().enumerate() {
-                storage.store_leaf(i, &bincode::serialize(leaf)?)?;
-            }
-            storage.store_tree()?;
-            storage.store_root()?;
+        for (i, leaf) in leaves.iter().enumerate() {
+            persistentstorage.store_leaf(i, &bincode::serialize(leaf)?)?;
         }
+        persistentstorage.store_tree()?;
+        persistentstorage.store_root()?;
+    
 
         Ok(instance)
     }

@@ -109,7 +109,7 @@ impl PersistentMetaMerkle {
     }
 
     /// Verifies if the stored root matches the reconstructed root
-    pub fn verify_tree(&mut self) -> Result< bool, Box<dyn Error>> {
+    pub fn verify_tree(&mut self) -> Result<bool, Box<dyn Error>> {
         
         let root_path = format!("{}/root.bin", self.storage_path);
 
@@ -129,15 +129,14 @@ impl PersistentMetaMerkle {
     }
 
     // Del tree, root and leafs of an obsolete record
-    pub fn delete_merkle_meta(&mut self) -> Result<bool, Box<dyn Error>> {
+    pub fn delete_merkle_meta(&mut self) -> Result<(), Box<dyn Error>> {
 
         if fs::metadata(&self.storage_path).is_ok(){
             fs::remove_dir(&self.storage_path)?;
             println!("{} metadata tree-folder deleted successfully", self.storage_path);
-            return Ok(true);
         }
 
-        Ok(false)
+        Ok(())
     }
 
 }

@@ -69,6 +69,7 @@ impl Metadata {
         Ok(instance)
     }
 
+
     // Merkle tree
     pub fn leaf_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {
         let metadata = [&self.file_name, &self.file_type, &self.mission];
@@ -80,7 +81,7 @@ impl Metadata {
     }
 
     // Retrieve a root
-    fn retrieve_root_hex(initial_leaves: &[String]) -> Result<Option<String>, Box<dyn Error>> {
+    fn retrieve_root_hex(initial_leaves: &[String]) -> Result<String, Box<dyn Error>> {
         
         let leaves: Vec<[u8; 32]> = initial_leaves
             .iter()
@@ -89,7 +90,20 @@ impl Metadata {
 
         let merkle_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
 
-        let root_hex = merkle_tree.root_hex();
+        let mut persistent_meta_merkle = PersistentMetaMerkle::new(None, Some(merkle_tree))?;
+        let is_valid = persistent_meta_merkle.verify_tree()?;
+
+        if ! is_valid {
+            return Err("Unvalid: stored tree for provided leaves.".into())
+        }
+        
+        let root_hex = persistent_meta_merkle
+            .tree
+            .as_ref()
+            .ok_or("Merkle tree not found")?
+            .root_hex()
+            .ok_or("Could not retrieve Merkle root")?;
+        
         Ok(root_hex)
     }
 
@@ -99,16 +113,28 @@ impl Metadata {
 
         let leaf =  Sha256::hash(str_leaf.as_bytes());
 
-        if let Some(root_hex) = Self::retrieve_root_hex(initial_leaves)?{
-            let mut load_tree = PersistentMetaMerkle::load_tree(&root_hex)?;
-            
-            load_tree.tree
-            .insert(leaf)
+        let roothex_retrieved = Self::retrieve_root_hex(initial_leaves)?;
+        let mut persistentmetamerkle = PersistentMetaMerkle::new(Some(&roothex_retrieved), None)?;
+        let instant_tree = persistentmetamerkle.load_tree()?;
+        
+        // Delete current tree folder.
+        persistentmetamerkle.delete_merkle_meta()?;
+
+        if let Some(mut tree) = instant_tree.tree {
+            tree.insert(leaf)
             .commit();
 
-        let new_root_hex = load_tree.tree.root_hex();
+            persistentmetamerkle.tree = Some(tree);
+            persistentmetamerkle.store_tree()?;
+            persistentmetamerkle.store_root()?;
+
+            let new_root_hex = persistentmetamerkle
+                .tree
+                .as_ref()
+                .ok_or("Merkle tree not found")?
+                .root_hex();
         
-        return Ok(new_root_hex)
+            return Ok(new_root_hex)
         } else {
             return Err("Failed to provide the new root hex with inserted leaf".into());
         }
@@ -122,14 +148,26 @@ impl Metadata {
             .map(|x| Sha256::hash(x.as_bytes()))
             .collect();
         
-        if let Some(root_hex) = Self::retrieve_root_hex(initial_leaves)?{
-            let mut load_tree = PersistentMetaMerkle::load_tree(&root_hex)?;
-
-        load_tree.tree
-            .append(&mut leaves)
+        let roothex_retrieved = Self::retrieve_root_hex(initial_leaves)?;
+        let mut persistentmetamerkle = PersistentMetaMerkle::new(Some(&roothex_retrieved), None)?;
+        let instant_tree = persistentmetamerkle.load_tree()?;
+        
+        // Delete current tree folder.
+        persistentmetamerkle.delete_merkle_meta()?;
+        
+        if let Some(mut tree) = instant_tree.tree {
+            tree.append(&mut leaves)
             .commit();
 
-        let new_root_hex = load_tree.tree.root_hex();
+            persistentmetamerkle.tree = Some(tree);
+            persistentmetamerkle.store_tree()?;
+            persistentmetamerkle.store_root()?;
+
+        let new_root_hex = persistentmetamerkle
+            .tree
+            .as_ref()
+            .ok_or("Merkle tree not found")?
+            .root_hex();
         
         return Ok(new_root_hex)
         } else {

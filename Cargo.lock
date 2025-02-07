@@ -2040,8 +2040,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "chacha20poly1305",
  "monotree",
+ "rand",
  "rs_merkle",
+ "tokio",
 ]
 
 [[package]]

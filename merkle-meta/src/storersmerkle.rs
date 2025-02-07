@@ -11,9 +11,10 @@ pub struct RSMerkleTree{
 }
 
 impl RSMerkleTree {
-    pub(crate) fn new(leaves: Vec<[u8; 32]>) -> Result<MerkleTree<Sha256>, Box<dyn Error>> {
+    
+    // initiate a Merkle Tree
+    pub fn new(leaves: Vec<[u8; 32]>) -> Result<MerkleTree<Sha256>, Box<dyn Error>> {
         let rs_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
-
         Ok(rs_tree)
     }
 }
@@ -42,13 +43,14 @@ impl PersistentMetaMerkle {
             })
     }
 
+
     // store metadata as individual leaf node
-    pub fn store_leaf(&self, index: usize, metadata: &[u8]) -> Result<(), Box<dyn Error>> {
-        let leaf_path = format!("{}/leaf_{:04}.bin", self.storage_path, index);
-        let mut file = fs::File::create(leaf_path)?;
-        file.write(metadata)?;
-        Ok(())
-    }
+    // pub fn store_leaf(&self, index: usize, metadata: &[u8]) -> Result<(), Box<dyn Error>> {
+    //     let leaf_path = format!("{}/leaf_{:04}.bin", self.storage_path, index);
+    //     let mut file = fs::File::create(leaf_path)?;
+    //     file.write(metadata)?;
+    //     Ok(())
+    // }
 
     // store the root
     pub fn store_root(&mut self) -> Result<(), Box<dyn Error>>{
@@ -58,9 +60,10 @@ impl PersistentMetaMerkle {
         if let Some(ref mut tree) = self.tree{
             tree.commit();
         
-            let root = tree.root();
-            let data = bincode::serialize(&root).expect("Failed to serialize bincode root");
-            fs::write(db_path, data).expect("Failed to write serialize root");
+            if let Some(root) = tree.root() {
+            //let data = bincode::serialize(&root).expect("Failed to serialize bincode root");
+                fs::write(db_path, &root)?;//.expect}("Failed to write serialize root");
+            }
         }
 
         Ok(())
@@ -73,10 +76,16 @@ impl PersistentMetaMerkle {
 
         if let Some(ref mut tree)= self.tree {
             tree.commit();
-        
+            
+            let leaves = tree.leaves();
 
-        let data = bincode::serialize(&tree.leaves()).expect("Failed to serialize bincode leaves");
-        fs::write(db_path, data).expect("Failed to write serialize tree");
+            let flattened_leaves: Vec<u8> = leaves
+                .iter()
+                .flat_map(|leaf| leaf.iter().copied())
+                .flatten()
+                .collect();
+
+            fs::write(db_path, &flattened_leaves)?; //.expect("Failed to write serialize tree");
         }
 
         Ok(())
@@ -91,15 +100,25 @@ impl PersistentMetaMerkle {
         }
 
         let data = fs::read(db_path)?;
-        let leaves: Vec<[u8; 32]> = bincode::deserialize(&data)?;
+
+        // Ensure data is a multiple of 32 bytes (valid `[u8; 32]` leaves)
+        if data.len() % 32 != 0 {
+            return Err("Invalid tree file size, not a multiple of 32".into());
+        }
+
+        let leaves: Vec<[u8; 32]> = data
+            .chunks_exact(32)
+            .map(|chunk| chunk.try_into().expect("Failed to convert chunk to [u8;32]"))
+            .collect();
+    
         let loaded_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
 
-        // verify the tree before providing
-        let is_valid = self.verify_tree()?;
+        // // verify the tree before providing
+        // let is_valid = self.verify_tree()?;
         
-        if ! is_valid {
-            return  Err("Loaded tree verification failed".into());
-        }
+        // if ! is_valid {
+        //     return  Err("Loaded tree verification failed".into());
+        // }
 
         Ok (Self {
             storage_path: self.storage_path.clone(),
@@ -118,9 +137,13 @@ impl PersistentMetaMerkle {
         
             if Path::new(&root_path).exists() {
                 let stored_root = fs::read(root_path)?;
-                let stored_root: [u8; 32] = stored_root.try_into().expect("Incorrect root size");
 
-                let computed_root = tree.root().expect("No root founded");
+               if stored_root.len() != 32 {
+                return Err(format!("Incorrect root size: {:?}", stored_root).into());
+            }
+
+            let stored_root: [u8; 32] = stored_root.try_into().map_err(|_| "Failed to convert stored root to [u8; 32]")?;
+            let computed_root = tree.root().ok_or("No root found in tree")?;
                 return Ok(stored_root == computed_root);
             }
         }
@@ -130,9 +153,11 @@ impl PersistentMetaMerkle {
 
     // Del tree, root and leafs of an obsolete record
     pub fn delete_merkle_meta(&mut self) -> Result<(), Box<dyn Error>> {
+        
+        println!("deleted check{}", self.storage_path);
 
         if fs::metadata(&self.storage_path).is_ok(){
-            fs::remove_dir(&self.storage_path)?;
+            fs::remove_dir_all(&self.storage_path)?;
             println!("{} metadata tree-folder deleted successfully", self.storage_path);
         }
 

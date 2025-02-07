@@ -19,12 +19,12 @@ impl RSMerkleTree {
     }
 }
 
-pub struct PersistentMetaMerkle {
+pub struct PersistentRsMerkle {
     pub storage_path: String,
     pub tree: Option<MerkleTree<Sha256>>
 }
 
-impl PersistentMetaMerkle {
+impl PersistentRsMerkle {
     
     pub fn new(root_hex: Option<&str>, tree: Option<MerkleTree<Sha256>>) -> Result<Self, Box<dyn Error>>{
         

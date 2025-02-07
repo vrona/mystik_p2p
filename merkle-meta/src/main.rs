@@ -2,6 +2,7 @@ use std::{any::{Any, TypeId}, error::Error, result::Result, path::Path};
 
 use rs_merkle::{self, algorithms::Sha256, Hasher as MerkleHasher, MerkleTree, MerkleProof};
 
+use hex::{encode, decode};
 use tokio::main;
 use monotree::{
     database::sled::Sled,
@@ -12,8 +13,8 @@ use monotree::{
     Monotree
 };
 
-mod storersmerkle;
-use storersmerkle::{RSMerkleTree, PersistentMetaMerkle};
+mod store_rsmerkle;
+use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
 
 use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
 use rand::RngCore;
@@ -51,13 +52,13 @@ impl Metadata {
     }
 }
 
-    fn create_tree(&mut self) -> Result<(), Box<dyn Error>> {
+    fn create_tree(&mut self) -> Result<String, Box<dyn Error>> {
         
         let leaves = self.leaf_basis_hashing()?;
 
         let merkletree = RSMerkleTree::new(leaves.clone())?;
 
-        let mut persistentstorage = PersistentMetaMerkle::new(None, Some(merkletree))?;
+        let mut persistentstorage = PersistentRsMerkle::new(None, Some(merkletree))?;
 
         // TO DELETE -- Store leaves.
         // for (i, leaf) in leaves.iter().enumerate() {
@@ -68,7 +69,14 @@ impl Metadata {
         persistentstorage.store_tree()?;
         persistentstorage.store_root()?;
     
-        Ok(())
+        let root_hex = persistentstorage
+            .tree
+            .as_ref()
+            .ok_or("Merkle tree not found")?
+            .root_hex()
+            .ok_or("Could not retrieve Merkle root")?;
+        
+        Ok(root_hex)
     }
 
 
@@ -90,7 +98,7 @@ impl Metadata {
         let merkle_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
         // let current_root_hex = merkle_tree.root_hex().ok_or("Not able to return current root hex")?;
         // println!("current root hex (internal): {}", current_root_hex);
-        let mut persistent_meta_merkle = PersistentMetaMerkle::new(None, Some(merkle_tree))?;
+        let mut persistent_meta_merkle = PersistentRsMerkle::new(None, Some(merkle_tree))?;
         let is_valid = persistent_meta_merkle.verify_tree()?;
 
         if ! is_valid {
@@ -113,21 +121,22 @@ impl Metadata {
         let leaf =  Sha256::hash(key_or_nonce);
 
         let roothex_retrieved = self.retrieve_root_hex()?;
-        let mut persistentmetamerkle = PersistentMetaMerkle::new(Some(&roothex_retrieved), None)?;
-        let instant_tree = persistentmetamerkle.load_tree()?;
+        let mut persistent_rsmerkle = PersistentRsMerkle::new(Some(&roothex_retrieved), None)?;
+        let instant_tree = persistent_rsmerkle.load_tree()?;
         
         // Delete current tree folder.
-        persistentmetamerkle.delete_merkle_meta()?;
+        persistent_rsmerkle.delete_merkle_meta()?;
 
         if let Some(mut tree) = instant_tree.tree {
             tree.insert(leaf)
             .commit();
 
-            persistentmetamerkle.tree = Some(tree);
-            persistentmetamerkle.store_tree()?;
-            persistentmetamerkle.store_root()?;
+           let mut new_persistent_rsmerkle = PersistentRsMerkle::new(None, Some(tree))?;
 
-            let new_root_hex = persistentmetamerkle
+            new_persistent_rsmerkle.store_tree()?;
+            new_persistent_rsmerkle.store_root()?;
+
+            let new_root_hex = new_persistent_rsmerkle
                 .tree
                 .as_ref()
                 .ok_or("Merkle tree not found")?
@@ -143,11 +152,11 @@ impl Metadata {
     fn append_leaves(&self, file_key: [u8; 32], file_nonce: [u8; 19]) -> Result<Option<String>, Box<dyn Error>> {
        
         let roothex_retrieved = self.retrieve_root_hex()?;
-        let mut persistentmetamerkle = PersistentMetaMerkle::new(Some(&roothex_retrieved), None)?;
-        let instant_tree = persistentmetamerkle.load_tree()?;
+        let mut persistent_rsmerkle = PersistentRsMerkle::new(Some(&roothex_retrieved), None)?;
+        let instant_tree = persistent_rsmerkle.load_tree()?;
         
         // Delete current tree folder.
-        persistentmetamerkle.delete_merkle_meta()?;
+        persistent_rsmerkle.delete_merkle_meta()?;
 
         let additional_leaves = vec![file_key.to_vec(), file_nonce.to_vec()];
         let mut add_leaves: Vec<[u8; 32]> = additional_leaves
@@ -159,18 +168,18 @@ impl Metadata {
             tree.append(&mut add_leaves)
             .commit();
 
-            let mut new_persistentmetamerkle = PersistentMetaMerkle::new(None, Some(tree))?;
+            let mut new_persistent_rsmerkle = PersistentRsMerkle::new(None, Some(tree))?;
 
-            new_persistentmetamerkle.store_tree()?;
-            new_persistentmetamerkle.store_root()?;
+            new_persistent_rsmerkle.store_tree()?;
+            new_persistent_rsmerkle.store_root()?;
 
-        let new_root_hex = new_persistentmetamerkle
-            .tree
-            .as_ref()
-            .ok_or("Merkle tree not found")?
-            .root_hex();
-        
-        return Ok(new_root_hex)
+            let new_root_hex = new_persistent_rsmerkle
+                .tree
+                .as_ref()
+                .ok_or("Merkle tree not found")?
+                .root_hex();
+            
+            return Ok(new_root_hex)
         } else {
             return Err("Failed to provide the new root hex with appended leaves".into());
         }
@@ -258,6 +267,25 @@ impl MonoMetaTree {
 
 }
 
+/// String to Hex conversion
+
+/// Converts `[u8; 32]` to a hex string
+fn bytes32_to_hex(bytes: [u8; 32]) -> String {
+    encode(bytes) // Convert bytes to hex string
+}
+
+/// Converts a hex string into `[u8; 32]`
+fn hex_to_bytes32(hex_str: &str) -> Result<[u8; 32], Box<dyn Error>> {
+    let decoded_bytes = decode(hex_str)?; // Decode hex string into Vec<u8>
+
+    // Ensure it's exactly 32 bytes
+    let byte_array: [u8; 32] = decoded_bytes.try_into()
+        .map_err(|_| "Hex string is not 32 bytes long")?;
+
+    Ok(byte_array)
+}
+
+
 ///// CRYPTOGRAPHY SECTION
 async fn newkey() -> Result<([u8; 32], [u8; 19]), Box <dyn Error>> {
 
@@ -279,27 +307,60 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cid = "b5af00meed83xdb47".to_string();
 
     let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), mission.clone(), cid.clone(), None, None);
-    let _ = metadata.create_tree()?;
-
-    let current_root_hex = metadata.retrieve_root_hex()?;
-
-    let (new_key, new_nonce) = newkey().await?;
-
-    let _ = metadata.append_leaves(new_key, new_nonce)?;
+    let roothex_aka_mid = hex_to_bytes32(&metadata.create_tree()?)?;
 
 
-    Ok(())
-}
+    //let key = monotree::utils::random_hash();//metadata.key_hashing();
+    //println!("Key:\n{:?}", key);
+    // init Monotree instance with the persistent database (rocksdb) and hasher (blake3)
+    let mut tree = MonoMetaTree::new()?;
 
-/* 
-let key = monotree::utils::random_hash();//metadata.key_hashing();
-//println!("Key:\n{:?}", key);
-// init Monotree instance with the persistent database (rocksdb) and hasher (blake3)
-let mut tree = MonoMetaTree::new()?;
-tree.insert(&key, &leafone)?;
+    /*
+    
+    >> IMPORTANT
+    To add the "leafone" which should be == to the PeerId we need to extract 32 bytes from the PeerId (= public key)
+    
+    
+
+        fn peer_id_to_bytes32(peer_id: &PeerId) -> Result<[u8; 32], String> {
+        let peer_id_bytes = peer_id.to_bytes(); // Extract `PeerId` as bytes
+
+        // Ensure `PeerId` provides at least 32 bytes
+        if peer_id_bytes.len() < 32 {
+            return Err("PeerId is too short to extract 32 bytes".to_string());
+        }
+
+        // Extract the first 32 bytes
+        let extracted_bytes: [u8; 32] = peer_id_bytes[..32]
+            .try_into()
+            .expect("Slice conversion failed");
+
+        Ok(extracted_bytes)
+    }
+
+    >> WARNING
+    A "matcher" is missing to do the opposite: match the PeerId for a given leafone (32 bytes)
+     */
+
+
+    tree.insert(&roothex_aka_mid, &leafone)?;
 
 // define root hash
 
 // create a merkle trie using Blake3TrieHasher
 //let mut trie = TrieDBMut::<KeccakHasher>::new(&mut db, &mut root);
+
+    /* 
+    let current_root_hex = metadata.retrieve_root_hex()?;
+
+    let (new_key, new_nonce) = newkey().await?;
+
+    let _ = metadata.append_leaves(new_key, new_nonce)?;
+    */
+
+    Ok(())
+}
+
+/* 
+
 */

@@ -3,6 +3,7 @@ use std::{any::{Any, TypeId}, error::Error, result::Result, path::Path};
 use rs_merkle::{self, algorithms::Sha256, Hasher as MerkleHasher, MerkleTree, MerkleProof};
 
 use hex::{encode, decode};
+use blake3::Hasher as GenuineBk3;
 use tokio::main;
 use monotree::{
     database::sled::Sled,
@@ -13,10 +14,12 @@ use monotree::{
     Monotree
 };
 
+use std::convert::TryInto;
+
 mod store_rsmerkle;
 use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
 
-use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
+use chacha20poly1305::aead::{generic_array::functional, OsRng};
 use rand::RngCore;
 
 const STORAGE_MIDCID: &str = "../merkle-meta/midtocid/";
@@ -298,13 +301,40 @@ async fn newkey() -> Result<([u8; 32], [u8; 19]), Box <dyn Error>> {
     Ok((key, nonce))
 }
 
+/// **Generates a CID from content using Blake3**
+fn generate_cid(content: &str) -> String {
+    let mut hasher = GenuineBk3::new();
+    hasher.update(content.as_bytes());
+    hasher.finalize().to_hex().to_string() // ✅ Returns a hex-encoded CID string
+}
+
+/// **Converts a CID (`String` hex) into `[u8; 32]`**
+fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
+    let decoded_bytes = decode(cid)?; // Convert hex string to Vec<u8>
+
+    // Ensure it's exactly 32 bytes
+    let byte_array: [u8; 32] = decoded_bytes
+        .try_into()
+        .map_err(|_| "CID string is not 32 bytes long")?;
+
+    Ok(byte_array)
+}
+
+/// **Converts `[u8; 32]` back into a CID (`String` hex)**
+fn bytes_to_cid(bytes: [u8; 32]) -> String {
+    encode(bytes) // Convert bytes back to hex string
+}
+
+
 #[main]
 async fn main() -> Result<(), Box<dyn Error>> {
     
     let file_name = "ObserveThis".to_string();
     let file_type = "txt".to_string();
     let mission = "BCX451".to_string();
-    let cid = "b5af00meed83xdb47".to_string();
+
+    let cid = generate_cid(&file_name.clone());
+
 
     let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), mission.clone(), cid.clone(), None, None);
     let roothex_aka_mid = hex_to_bytes32(&metadata.create_tree()?)?;
@@ -322,7 +352,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     
 
-        fn peer_id_to_bytes32(peer_id: &PeerId) -> Result<[u8; 32], String> {
+    fn peer_id_to_bytes32(peer_id: &PeerId) -> Result<[u8; 32], String> {
         let peer_id_bytes = peer_id.to_bytes(); // Extract `PeerId` as bytes
 
         // Ensure `PeerId` provides at least 32 bytes
@@ -338,12 +368,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(extracted_bytes)
     }
 
-    >> WARNING
-    A "matcher" is missing to do the opposite: match the PeerId for a given leafone (32 bytes)
+    
+    /// Antidote Converts `[u8; 32]` back to `PeerId`
+    fn bytes32_to_peer_id(bytes: [u8; 32]) -> Result<PeerId, String> {
+        PeerId::from_bytes(&bytes)
+            .map_err(|_| "Failed to reconstruct PeerId from bytes".to_string())
+    }
+
      */
 
 
+    let leafone = cid_to_bytes(&metadata.cid)?;
     tree.insert(&roothex_aka_mid, &leafone)?;
+
+    // reverse the peedID
+    let cid_recomposed = bytes_to_cid(leafone);
+    
+    if cid == cid_recomposed {
+        print!("Banger");
+    } else {
+        print!("Schwarz");
+    }
 
 // define root hash
 

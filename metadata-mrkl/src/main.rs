@@ -22,7 +22,7 @@ use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
 use chacha20poly1305::aead::{generic_array::functional, OsRng};
 use rand::RngCore;
 
-const STORAGE_MIDCID: &str = "../merkle-meta/midtocid/";
+const STORAGE_MIDCID: &str = "../metadata-mrkl/midtocid/";
 
 struct Metadata {
     file_name: String,

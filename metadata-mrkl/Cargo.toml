@@ -1,5 +1,5 @@
 [package]
-name = "merkle-meta"
+name = "metadata-mrkl"
 version = "0.1.0"
 author = ["VRONA | The Decentralized Intelligence Lab <travis@vrona.xyz>"]
 description = "Merkle Tree applied to metadata"

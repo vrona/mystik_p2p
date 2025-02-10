@@ -31,7 +31,6 @@ struct Metadata {
     cid: String,
     file_key: Option<Vec<u8>>,
     file_nonce: Option<Vec<u8>>,
-
 }
 
 impl Metadata {
@@ -54,7 +53,7 @@ impl Metadata {
             file_nonce,
     }
 }
-
+    // Metadata Tree creation
     fn create_tree(&mut self) -> Result<String, Box<dyn Error>> {
         
         let leaves = self.leaf_basis_hashing()?;
@@ -83,7 +82,7 @@ impl Metadata {
     }
 
 
-    // Merkle tree
+    // Leaves hashing
     pub fn leaf_basis_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {
         let metadata = [&self.file_name, &self.file_type, &self.mission, &self.cid];
         let leaves: Vec<[u8; 32]> = metadata
@@ -272,20 +271,20 @@ impl MonoMetaTree {
 
 /// String to Hex conversion
 
-/// Converts `[u8; 32]` to a hex string
-fn bytes32_to_hex(bytes: [u8; 32]) -> String {
-    encode(bytes) // Convert bytes to hex string
-}
-
-/// Converts a hex string into `[u8; 32]`
-fn hex_to_bytes32(hex_str: &str) -> Result<[u8; 32], Box<dyn Error>> {
-    let decoded_bytes = decode(hex_str)?; // Decode hex string into Vec<u8>
+/// **Converts a CID (`String` hex) into `[u8; 32]`**
+fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
+    let decoded_bytes = decode(cid)?; // Decode hex string into Vec<u8>
 
     // Ensure it's exactly 32 bytes
-    let byte_array: [u8; 32] = decoded_bytes.try_into()
+    let byte_array: [u8; 32] = decoded_bytes
+        .try_into()
         .map_err(|_| "Hex string is not 32 bytes long")?;
-
     Ok(byte_array)
+}
+
+/// **Converts `[u8; 32]` back into a CID (`String` hex)**
+fn bytes_to_cid(bytes: [u8; 32]) -> String {
+    encode(bytes) // Convert bytes back to hex string
 }
 
 
@@ -308,24 +307,6 @@ fn generate_cid(content: &str) -> String {
     hasher.finalize().to_hex().to_string() // ✅ Returns a hex-encoded CID string
 }
 
-/// **Converts a CID (`String` hex) into `[u8; 32]`**
-fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
-    let decoded_bytes = decode(cid)?; // Convert hex string to Vec<u8>
-
-    // Ensure it's exactly 32 bytes
-    let byte_array: [u8; 32] = decoded_bytes
-        .try_into()
-        .map_err(|_| "CID string is not 32 bytes long")?;
-
-    Ok(byte_array)
-}
-
-/// **Converts `[u8; 32]` back into a CID (`String` hex)**
-fn bytes_to_cid(bytes: [u8; 32]) -> String {
-    encode(bytes) // Convert bytes back to hex string
-}
-
-
 #[main]
 async fn main() -> Result<(), Box<dyn Error>> {
     
@@ -337,46 +318,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 
     let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), mission.clone(), cid.clone(), None, None);
-    let roothex_aka_mid = hex_to_bytes32(&metadata.create_tree()?)?;
+    let roothex_aka_mid = cid_to_bytes(&metadata.create_tree()?)?;
 
 
     //let key = monotree::utils::random_hash();//metadata.key_hashing();
     //println!("Key:\n{:?}", key);
     // init Monotree instance with the persistent database (rocksdb) and hasher (blake3)
     let mut tree = MonoMetaTree::new()?;
-
-    /*
-    
-    >> IMPORTANT
-    To add the "leafone" which should be == to the PeerId we need to extract 32 bytes from the PeerId (= public key)
-    
-    
-
-    fn peer_id_to_bytes32(peer_id: &PeerId) -> Result<[u8; 32], String> {
-        let peer_id_bytes = peer_id.to_bytes(); // Extract `PeerId` as bytes
-
-        // Ensure `PeerId` provides at least 32 bytes
-        if peer_id_bytes.len() < 32 {
-            return Err("PeerId is too short to extract 32 bytes".to_string());
-        }
-
-        // Extract the first 32 bytes
-        let extracted_bytes: [u8; 32] = peer_id_bytes[..32]
-            .try_into()
-            .expect("Slice conversion failed");
-
-        Ok(extracted_bytes)
-    }
-
-    
-    /// Antidote Converts `[u8; 32]` back to `PeerId`
-    fn bytes32_to_peer_id(bytes: [u8; 32]) -> Result<PeerId, String> {
-        PeerId::from_bytes(&bytes)
-            .map_err(|_| "Failed to reconstruct PeerId from bytes".to_string())
-    }
-
-     */
-
 
     let leafone = cid_to_bytes(&metadata.cid)?;
     tree.insert(&roothex_aka_mid, &leafone)?;

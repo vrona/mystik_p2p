@@ -93,7 +93,7 @@ impl Metadata {
     }
 
     // Retrieve a root
-    fn retrieve_root_hex(&self) -> Result<String, Box<dyn Error>> {
+    fn get_root_hex(&self) -> Result<String, Box<dyn Error>> {
         
         let leaves: Vec<[u8; 32]> = self.leaf_basis_hashing()?;
 
@@ -122,7 +122,7 @@ impl Metadata {
 
         let leaf =  Sha256::hash(key_or_nonce);
 
-        let roothex_retrieved = self.retrieve_root_hex()?;
+        let roothex_retrieved = self.get_root_hex()?;
         let mut persistent_rsmerkle = PersistentRsMerkle::new(Some(&roothex_retrieved), None)?;
         let instant_tree = persistent_rsmerkle.load_tree()?;
         
@@ -153,7 +153,7 @@ impl Metadata {
     // Append Leaves
     fn append_leaves(&self, file_key: [u8; 32], file_nonce: [u8; 19]) -> Result<Option<String>, Box<dyn Error>> {
        
-        let roothex_retrieved = self.retrieve_root_hex()?;
+        let roothex_retrieved = self.get_root_hex()?;
         let mut persistent_rsmerkle = PersistentRsMerkle::new(Some(&roothex_retrieved), None)?;
         let instant_tree = persistent_rsmerkle.load_tree()?;
         
@@ -344,7 +344,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 //let mut trie = TrieDBMut::<KeccakHasher>::new(&mut db, &mut root);
 
     /* 
-    let current_root_hex = metadata.retrieve_root_hex()?;
+    let current_root_hex = metadata.get_root_hex()?;
 
     let (new_key, new_nonce) = newkey().await?;
 

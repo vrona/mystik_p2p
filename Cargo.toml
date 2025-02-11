@@ -11,6 +11,6 @@ members = [
     "content-hashing",
     "file-sharing",
     "ghost-ground",
-    "ghost-space", "metadata-mrkl",
+    "ghost-space",
     "metadata-mrkl",
 ]

@@ -29,8 +29,6 @@ struct Metadata {
     file_type: String,
     mission: String,
     cid: String,
-    file_key: Option<Vec<u8>>,
-    file_nonce: Option<Vec<u8>>,
 }
 
 impl Metadata {
@@ -39,9 +37,6 @@ impl Metadata {
         file_type: String,
         mission: String,
         cid: String,
-        file_key: Option<Vec<u8>>,
-        file_nonce: Option<Vec<u8>>,
-
     ) -> Self {
         
         Self {
@@ -49,27 +44,20 @@ impl Metadata {
             file_type,
             mission,
             cid,
-            file_key,
-            file_nonce,
     }
 }
     // Metadata Tree creation
-    fn create_tree(&mut self) -> Result<String, Box<dyn Error>> {
+    async fn create_tree(&mut self) -> Result<String, Box<dyn Error>> {
         
-        let leaves = self.leaf_basis_hashing()?;
+        let leaves = self.leaf_basis_hashing().await?;
 
-        let merkletree = RSMerkleTree::new(leaves.clone())?;
+        let merkletree = RSMerkleTree::new(leaves.clone()).await?;
 
-        let mut persistentstorage = PersistentRsMerkle::new(None, Some(merkletree))?;
-
-        // TO DELETE -- Store leaves.
-        // for (i, leaf) in leaves.iter().enumerate() {
-        //     persistentstorage.store_leaf(i, &bincode::serialize(leaf)?)?;
-        // }
+        let mut persistentstorage = PersistentRsMerkle::new(None, Some(merkletree)).await?;
 
         // Store tree, and root
-        persistentstorage.store_tree()?;
-        persistentstorage.store_root()?;
+        persistentstorage.store_tree().await?;
+        persistentstorage.store_root().await?;
     
         let root_hex = persistentstorage
             .tree
@@ -83,7 +71,7 @@ impl Metadata {
 
 
     // Leaves hashing
-    pub fn leaf_basis_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {
+    pub async fn leaf_basis_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {
         let metadata = [&self.file_name, &self.file_type, &self.mission, &self.cid];
         let leaves: Vec<[u8; 32]> = metadata
             .iter()
@@ -93,15 +81,15 @@ impl Metadata {
     }
 
     // Retrieve a root
-    fn get_root_hex(&self) -> Result<String, Box<dyn Error>> {
+    async fn get_root_hex(&self) -> Result<String, Box<dyn Error>> {
         
-        let leaves: Vec<[u8; 32]> = self.leaf_basis_hashing()?;
+        let leaves: Vec<[u8; 32]> = self.leaf_basis_hashing().await?;
 
         let merkle_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
         // let current_root_hex = merkle_tree.root_hex().ok_or("Not able to return current root hex")?;
         // println!("current root hex (internal): {}", current_root_hex);
-        let mut persistent_meta_merkle = PersistentRsMerkle::new(None, Some(merkle_tree))?;
-        let is_valid = persistent_meta_merkle.verify_tree()?;
+        let mut persistent_meta_merkle = PersistentRsMerkle::new(None, Some(merkle_tree)).await?;
+        let is_valid = persistent_meta_merkle.verify_root_tree().await?;
 
         if ! is_valid {
             return Err("Unvalid: stored tree for provided leaves.".into())
@@ -117,99 +105,53 @@ impl Metadata {
         Ok(root_hex)
     }
 
-    // Insert Leaf (new leaf)
-    fn insert_leaf(&self, key_or_nonce: &[u8]) -> Result<Option<String>, Box<dyn Error>> {
-
-        let leaf =  Sha256::hash(key_or_nonce);
-
-        let roothex_retrieved = self.get_root_hex()?;
-        let mut persistent_rsmerkle = PersistentRsMerkle::new(Some(&roothex_retrieved), None)?;
-        let instant_tree = persistent_rsmerkle.load_tree()?;
+    // Remove a record
+    pub async fn remove_record(&self) -> Result<bool, Box<dyn Error>> {
+        
+        let roothex_retrieved = self.get_root_hex().await?;
+        let mut persistent_rsmerkle = PersistentRsMerkle::new(Some(&roothex_retrieved), None).await?;
         
         // Delete current tree folder.
-        persistent_rsmerkle.delete_merkle_meta()?;
+        let is_deleted = persistent_rsmerkle.delete_merkle_meta().await?;
 
-        if let Some(mut tree) = instant_tree.tree {
-            tree.insert(leaf)
-            .commit();
-
-           let mut new_persistent_rsmerkle = PersistentRsMerkle::new(None, Some(tree))?;
-
-            new_persistent_rsmerkle.store_tree()?;
-            new_persistent_rsmerkle.store_root()?;
-
-            let new_root_hex = new_persistent_rsmerkle
-                .tree
-                .as_ref()
-                .ok_or("Merkle tree not found")?
-                .root_hex();
-        
-            return Ok(new_root_hex)
-        } else {
-            return Err("Failed to provide the new root hex with inserted leaf".into());
+        if ! is_deleted {
+            return Ok(false);
         }
-    }
-    
-    // Append Leaves
-    fn append_leaves(&self, file_key: [u8; 32], file_nonce: [u8; 19]) -> Result<Option<String>, Box<dyn Error>> {
-       
-        let roothex_retrieved = self.get_root_hex()?;
-        let mut persistent_rsmerkle = PersistentRsMerkle::new(Some(&roothex_retrieved), None)?;
-        let instant_tree = persistent_rsmerkle.load_tree()?;
-        
-        // Delete current tree folder.
-        persistent_rsmerkle.delete_merkle_meta()?;
 
-        let additional_leaves = vec![file_key.to_vec(), file_nonce.to_vec()];
-        let mut add_leaves: Vec<[u8; 32]> = additional_leaves
+        return Ok(true);
+    }
+
+
+    // Proof Leaf
+    pub async fn prove_leaf_persistent(&self, initial_leaves: &[&str]) -> Result<bool, Box<dyn Error>> {
+        
+        let roothex_retrieved = self.get_root_hex().await?;
+        let mut persistent_rsmerkle = PersistentRsMerkle::new(Some(&roothex_retrieved), None).await?;
+        let instant_tree = persistent_rsmerkle
+            .load_tree()
+            .await?
+            .tree
+            .expect("Tree is None");
+
+        let leaves: Vec<[u8; 32]> = initial_leaves
             .iter()
-            .map(|x| Sha256::hash(x))
+            .map(|x| Sha256::hash(x.as_bytes()))
             .collect();
-        
-        if let Some(mut tree) = instant_tree.tree {
-            tree.append(&mut add_leaves)
-            .commit();
 
-            let mut new_persistent_rsmerkle = PersistentRsMerkle::new(None, Some(tree))?;
+        let indices_to_prove: Vec<usize> = (0..leaves.len()).collect();
 
-            new_persistent_rsmerkle.store_tree()?;
-            new_persistent_rsmerkle.store_root()?;
+        let merkle_proof = instant_tree.proof(&indices_to_prove);
+        let merkle_root = instant_tree.root().ok_or("can't get current root")?;
 
-            let new_root_hex = new_persistent_rsmerkle
-                .tree
-                .as_ref()
-                .ok_or("Merkle tree not found")?
-                .root_hex();
-            
-            return Ok(new_root_hex)
-        } else {
-            return Err("Failed to provide the new root hex with appended leaves".into());
-        }
+        // serialize proof to pass it to the client
+        let proof_bytes = merkle_proof.to_bytes();
+
+        // Parse proof back on the client
+        let proof = MerkleProof::<Sha256>::try_from(proof_bytes)?;
+
+        let leave_verify = proof.verify(merkle_root, &indices_to_prove, &leaves, leaves.len());
+        Ok(leave_verify)
     }
-
-    // // Proof Leaf
-    // pub fn prove_leaf(&self, initial_leaves: &[&str]) -> Result<bool, Box<dyn Error>> {
-        
-    //     let load_tree = PersistentMetaMerkle::new(cid)?;
-
-    //     let leaves: Vec<[u8; 32]> = initial_leaves
-    //         .iter()
-    //         .map(|x| Sha256::hash(x.as_bytes()))
-    //         .collect();
-
-    //     let indices_to_prove: Vec<usize> = (0..leaves.len()).collect();
-
-    //     let merkle_proof = load_tree.tree.proof(&indices_to_prove);
-    //     let merkle_root = load_tree.tree.root().ok_or("can't get current root")?;
-    //     // serialize proof to pass it to the client
-    //     let proof_bytes = merkle_proof.to_bytes();
-
-    //     // Parse proof back on the client
-    //     let proof = MerkleProof::<Sha256>::try_from(proof_bytes)?;
-
-    //     let leave_verify = proof.verify(merkle_root, &indices_to_prove, &leaves, leaves.len());
-    //     Ok(leave_verify)
-    // }
 
 }
 
@@ -272,7 +214,7 @@ impl MonoMetaTree {
 /// String to Hex conversion
 
 /// **Converts a CID (`String` hex) into `[u8; 32]`**
-fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
+async fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
     let decoded_bytes = decode(cid)?; // Decode hex string into Vec<u8>
 
     // Ensure it's exactly 32 bytes
@@ -283,42 +225,50 @@ fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
 }
 
 /// **Converts `[u8; 32]` back into a CID (`String` hex)**
-fn bytes_to_cid(bytes: [u8; 32]) -> String {
+async fn bytes_to_cid(bytes: [u8; 32]) -> String {
     encode(bytes) // Convert bytes back to hex string
 }
 
 
 ///// CRYPTOGRAPHY SECTION
-async fn newkey() -> Result<([u8; 32], [u8; 19]), Box <dyn Error>> {
+// async fn newkey() -> Result<([u8; 32], [u8; 19]), Box <dyn Error>> {
 
-    let mut key = [0u8; 32];
-    let mut nonce = [0u8; 19];
+//     let mut key = [0u8; 32];
+//     let mut nonce = [0u8; 19];
 
-    OsRng.fill_bytes(&mut key);
-    OsRng.fill_bytes(&mut nonce);
+//     OsRng.fill_bytes(&mut key);
+//     OsRng.fill_bytes(&mut nonce);
     
-    Ok((key, nonce))
-}
+//     Ok((key, nonce))
+// }
 
 /// **Generates a CID from content using Blake3**
-fn generate_cid(content: &str) -> String {
+async fn generate_cid(content: &str) -> String {
     let mut hasher = GenuineBk3::new();
     hasher.update(content.as_bytes());
-    hasher.finalize().to_hex().to_string() // ✅ Returns a hex-encoded CID string
+    hasher.finalize().to_hex().to_string() // Returns a hex-encoded CID string
 }
 
 #[main]
 async fn main() -> Result<(), Box<dyn Error>> {
     
+    let mut empty_leaves: Vec<&str>= Vec::new();
+    
     let file_name = "ObserveThis".to_string();
+    empty_leaves.push(&file_name);
     let file_type = "txt".to_string();
+    empty_leaves.push(&file_type);
     let mission = "BCX451".to_string();
+    empty_leaves.push(&mission);
 
-    let cid = generate_cid(&file_name.clone());
 
+    let cid = generate_cid(&file_name.clone()).await;
+    empty_leaves.push(&cid);
 
-    let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), mission.clone(), cid.clone(), None, None);
-    let roothex_aka_mid = cid_to_bytes(&metadata.create_tree()?)?;
+    let initial_leaves: &[&str] = &empty_leaves;
+    
+    let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), mission.clone(), cid.clone());
+    let roothex_aka_mid = cid_to_bytes(&metadata.create_tree().await?).await?;
 
 
     //let key = monotree::utils::random_hash();//metadata.key_hashing();
@@ -326,34 +276,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // init Monotree instance with the persistent database (rocksdb) and hasher (blake3)
     let mut tree = MonoMetaTree::new()?;
 
-    let leafone = cid_to_bytes(&metadata.cid)?;
-    tree.insert(&roothex_aka_mid, &leafone)?;
+    let leaf_aka_cid = cid_to_bytes(&metadata.cid).await?;
+    tree.insert(&roothex_aka_mid, &leaf_aka_cid)?;
 
     // reverse the peedID
-    let cid_recomposed = bytes_to_cid(leafone);
+    let cid_recomposed = bytes_to_cid(leaf_aka_cid).await;
     
     if cid == cid_recomposed {
-        print!("Banger");
+        print!("Banger\n");
     } else {
-        print!("Schwarz");
+        print!("Schwarz\n");
     }
 
-// define root hash
-
-// create a merkle trie using Blake3TrieHasher
-//let mut trie = TrieDBMut::<KeccakHasher>::new(&mut db, &mut root);
-
-    /* 
-    let current_root_hex = metadata.get_root_hex()?;
-
-    let (new_key, new_nonce) = newkey().await?;
-
-    let _ = metadata.append_leaves(new_key, new_nonce)?;
-    */
-
+   
+    let leaf_proof = metadata.prove_leaf_persistent(initial_leaves).await;
+    println!("Leaf Proof: {:?}", leaf_proof);
     Ok(())
 }
-
-/* 
-
-*/

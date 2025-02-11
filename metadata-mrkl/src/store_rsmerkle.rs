@@ -13,7 +13,7 @@ pub struct RSMerkleTree{
 impl RSMerkleTree {
     
     // initiate a Merkle Tree
-    pub fn new(leaves: Vec<[u8; 32]>) -> Result<MerkleTree<Sha256>, Box<dyn Error>> {
+    pub async fn new(leaves: Vec<[u8; 32]>) -> Result<MerkleTree<Sha256>, Box<dyn Error>> {
         let rs_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
         Ok(rs_tree)
     }
@@ -26,7 +26,7 @@ pub struct PersistentRsMerkle {
 
 impl PersistentRsMerkle {
     
-    pub fn new(root_hex: Option<&str>, tree: Option<MerkleTree<Sha256>>) -> Result<Self, Box<dyn Error>>{
+    pub async fn new(root_hex: Option<&str>, tree: Option<MerkleTree<Sha256>>) -> Result<Self, Box<dyn Error>>{
         
         let storage_roothex = if let Some(ref tree) = tree {
            
@@ -43,17 +43,8 @@ impl PersistentRsMerkle {
             })
     }
 
-
-    // store metadata as individual leaf node
-    // pub fn store_leaf(&self, index: usize, metadata: &[u8]) -> Result<(), Box<dyn Error>> {
-    //     let leaf_path = format!("{}/leaf_{:04}.bin", self.storage_path, index);
-    //     let mut file = fs::File::create(leaf_path)?;
-    //     file.write(metadata)?;
-    //     Ok(())
-    // }
-
     // store the root
-    pub fn store_root(&mut self) -> Result<(), Box<dyn Error>>{
+    pub async fn store_root(&mut self) -> Result<(), Box<dyn Error>>{
         
         let db_path = format!("{}/root.bin", self.storage_path);
         
@@ -70,7 +61,7 @@ impl PersistentRsMerkle {
     }
 
     // store the tree structure
-    pub fn store_tree(&mut self) -> Result<(), Box<dyn Error>>{
+    pub async fn store_tree(&mut self) -> Result<(), Box<dyn Error>>{
         
         let db_path = format!("{}/tree.bin", self.storage_path);
 
@@ -91,7 +82,7 @@ impl PersistentRsMerkle {
         Ok(())
     }
 
-    pub fn load_tree(&mut self) -> Result<Self, Box<dyn Error>> {
+    pub async fn load_tree(&mut self) -> Result<Self, Box<dyn Error>> {
 
         let db_path = format!("{}/tree.bin", self.storage_path);
 
@@ -113,13 +104,6 @@ impl PersistentRsMerkle {
     
         let loaded_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
 
-        // // verify the tree before providing
-        // let is_valid = self.verify_tree()?;
-        
-        // if ! is_valid {
-        //     return  Err("Loaded tree verification failed".into());
-        // }
-
         Ok (Self {
             storage_path: self.storage_path.clone(),
             tree: Some(loaded_tree),
@@ -128,7 +112,7 @@ impl PersistentRsMerkle {
     }
 
     /// Verifies if the stored root matches the reconstructed root
-    pub fn verify_tree(&mut self) -> Result<bool, Box<dyn Error>> {
+    pub async fn verify_root_tree(&mut self) -> Result<bool, Box<dyn Error>> {
         
         let root_path = format!("{}/root.bin", self.storage_path);
 
@@ -152,16 +136,18 @@ impl PersistentRsMerkle {
     }
 
     // Del tree, root and leafs of an obsolete record
-    pub fn delete_merkle_meta(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn delete_merkle_meta(&mut self) -> Result<bool, Box<dyn Error>> {
         
         println!("deleted check{}", self.storage_path);
 
         if fs::metadata(&self.storage_path).is_ok(){
-            fs::remove_dir_all(&self.storage_path)?;
+            fs::remove_dir_all(&self.storage_path)?; // delete the content of folder
+
             println!("{} metadata tree-folder deleted successfully", self.storage_path);
+            return Ok(true);
         }
 
-        Ok(())
+        return Ok(false)
     }
 
 }

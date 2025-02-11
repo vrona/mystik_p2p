@@ -1,0 +1,38 @@
+content
+chacha20poly1305 = { version = "0.10.1", features = ["stream"] }
+anyhow = "1.0.95"
+blake3 = "1.5.5"
+hex = "0.4.3"
+multihash = "0.19.3"
+multihash-codetable = {version = "0.1.4", features = ["sha2"]}
+rand = "0.8.5"
+tokio = { version = "1.42.0", features = ["full"] }
+typenum = "1.17.0"
+
+sharing
+anyhow = "1.0.95"
+blake3 = "1.5.5"
+serde = { version = "1.0.217", features = ["derive"] }
+tokio = { version = "1.42.0", features = ["full"] }
+clap = { version = "4.5.6", features = ["derive"] }
+futures = "0.3.31"
+libp2p = { version = "0.54.1", features = [ "tokio", "cbor", "dns", "kad", "noise", "ping", "macros", "request-response", "tcp", "quic", "websocket", "yamux"] }
+libp2p-stream = "0.2.0-alpha"
+rand = "0.8.5"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
+metadata
+
+anyhow = "1.0.95"
+bincode = "1.3.3"
+blake3 = "1.5.5"
+chacha20poly1305 = { version = "0.10.1", features = ["stream"] }
+hex = "0.4.3"
+monotree = {version = "0.2", features = ["db_sled"]}
+rand = "0.8.5"
+rs_merkle = "1.4.2"
+tokio = { version = "1.42.0", features = ["full"] }
+
+
+merge

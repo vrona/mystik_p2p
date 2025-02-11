@@ -12,7 +12,5 @@ async fn main() -> Result<(), Box<dyn Error>> {
             path: "data/kb.mp4".into(),
             name: "kb.mp4".to_string() },
     };
-   
     opt.run().await
-
 }

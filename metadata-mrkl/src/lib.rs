@@ -249,47 +249,47 @@ async fn generate_cid(content: &str) -> String {
     hasher.finalize().to_hex().to_string() // Returns a hex-encoded CID string
 }
 
-#[main]
-async fn main() -> Result<(), Box<dyn Error>> {
+// #[tokio::main]
+// async fn main() -> Result<(), Box<dyn Error>> {
     
-    let mut empty_leaves: Vec<&str>= Vec::new();
+//     let mut empty_leaves: Vec<&str>= Vec::new();
     
-    let file_name = "ObserveThis".to_string();
-    empty_leaves.push(&file_name);
-    let file_type = "txt".to_string();
-    empty_leaves.push(&file_type);
-    let mission = "BCX451".to_string();
-    empty_leaves.push(&mission);
+//     let file_name = "ObserveThis".to_string();
+//     empty_leaves.push(&file_name);
+//     let file_type = "txt".to_string();
+//     empty_leaves.push(&file_type);
+//     let mission = "BCX451".to_string();
+//     empty_leaves.push(&mission);
 
 
-    let cid = generate_cid(&file_name.clone()).await;
-    empty_leaves.push(&cid);
+//     let cid = generate_cid(&file_name.clone()).await;
+//     empty_leaves.push(&cid);
 
-    let initial_leaves: &[&str] = &empty_leaves;
+//     let initial_leaves: &[&str] = &empty_leaves;
     
-    let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), mission.clone(), cid.clone());
-    let roothex_aka_mid = cid_to_bytes(&metadata.create_tree().await?).await?;
+//     let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), mission.clone(), cid.clone());
+//     let roothex_aka_mid = cid_to_bytes(&metadata.create_tree().await?).await?;
 
 
-    //let key = monotree::utils::random_hash();//metadata.key_hashing();
-    //println!("Key:\n{:?}", key);
-    // init Monotree instance with the persistent database (rocksdb) and hasher (blake3)
-    let mut tree = MonoMetaTree::new()?;
+//     //let key = monotree::utils::random_hash();//metadata.key_hashing();
+//     //println!("Key:\n{:?}", key);
+//     // init Monotree instance with the persistent database (rocksdb) and hasher (blake3)
+//     let mut tree = MonoMetaTree::new()?;
 
-    let leaf_aka_cid = cid_to_bytes(&metadata.cid).await?;
-    tree.insert(&roothex_aka_mid, &leaf_aka_cid)?;
+//     let leaf_aka_cid = cid_to_bytes(&metadata.cid).await?;
+//     tree.insert(&roothex_aka_mid, &leaf_aka_cid)?;
 
-    // reverse the peedID
-    let cid_recomposed = bytes_to_cid(leaf_aka_cid).await;
+//     // reverse the peedID
+//     let cid_recomposed = bytes_to_cid(leaf_aka_cid).await;
     
-    if cid == cid_recomposed {
-        print!("Banger\n");
-    } else {
-        print!("Schwarz\n");
-    }
+//     if cid == cid_recomposed {
+//         print!("Banger\n");
+//     } else {
+//         print!("Schwarz\n");
+//     }
 
    
-    let leaf_proof = metadata.prove_leaf_persistent(initial_leaves).await;
-    println!("Leaf Proof: {:?}", leaf_proof);
-    Ok(())
-}
+//     let leaf_proof = metadata.prove_leaf_persistent(initial_leaves).await;
+//     println!("Leaf Proof: {:?}", leaf_proof);
+//     Ok(())
+// }

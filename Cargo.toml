@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-
+content-hashing = { path = "./content-hashing" }
+file-sharing    = { path = "./file-sharing" }
+metadata-mrkl   = { path = "./metadata-mrkl" }
 
 [workspace]
 members = [ 

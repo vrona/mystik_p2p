@@ -3,8 +3,7 @@ use std::{any::{Any, TypeId}, error::Error, result::Result, path::Path};
 use rs_merkle::{self, algorithms::Sha256, Hasher as MerkleHasher, MerkleTree, MerkleProof};
 
 use hex::{encode, decode};
-use blake3::Hasher as GenuineBk3;
-use tokio::main;
+
 use monotree::{
     database::sled::Sled,
     hasher::{Blake3, Hasher},
@@ -18,9 +17,6 @@ use std::convert::TryInto;
 
 mod store_rsmerkle;
 use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
-
-use chacha20poly1305::aead::{generic_array::functional, OsRng};
-use rand::RngCore;
 
 const STORAGE_MIDCID: &str = "../metadata-mrkl/midtocid/";
 
@@ -242,12 +238,12 @@ async fn bytes_to_cid(bytes: [u8; 32]) -> String {
 //     Ok((key, nonce))
 // }
 
-/// **Generates a CID from content using Blake3**
-async fn generate_cid(content: &str) -> String {
-    let mut hasher = GenuineBk3::new();
-    hasher.update(content.as_bytes());
-    hasher.finalize().to_hex().to_string() // Returns a hex-encoded CID string
-}
+// Generates a CID from content using Blake3
+// async fn generate_cid(content: &str) -> String {
+//     let mut hasher = GenuineBk3::new();
+//     hasher.update(content.as_bytes());
+//     hasher.finalize().to_hex().to_string() // Returns a hex-encoded CID string
+// }
 
 // #[tokio::main]
 // async fn main() -> Result<(), Box<dyn Error>> {

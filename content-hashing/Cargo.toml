@@ -1,6 +1,9 @@
 [package]
 name = "content-hashing"
 version = "0.1.0"
+author = ["VRONA | The Decentralized Intelligence Lab <travis@vrona.xyz>"]
+description = "Encryption content, Hashing checking"
+repository = "https://github.com/vrona/intnet"
 edition = "2021"
 
 [dependencies]

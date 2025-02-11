@@ -1,6 +1,9 @@
 [package]
 name = "file-sharing"
 version = "0.1.0"
+author = ["VRONA | The Decentralized Intelligence Lab <travis@vrona.xyz>"]
+description = "File sharing throught libp2p"
+repository = "https://github.com/vrona/intnet"
 edition = "2021"
 
 [dependencies]

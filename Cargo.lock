@@ -2226,9 +2226,9 @@ dependencies = [
 
 [[package]]
 name = "monotree"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6557eff1b8c8bb44b64a3d09559af72436e1540d7eec3b1697ed451faa1007c1"
+checksum = "c607f02644c4a26476170ae8b4e0b13c779a08a3d05c439a262505597a733134"
 dependencies = [
  "blake2-rfc",
  "blake3",

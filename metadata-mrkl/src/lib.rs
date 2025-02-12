@@ -24,7 +24,6 @@ pub struct Metadata {
     file_name: String,
     file_type: String,
     mission: String,
-    pub cid: String,
 }
 
 impl Metadata {
@@ -32,18 +31,16 @@ impl Metadata {
         file_name: String,
         file_type: String,
         mission: String,
-        cid: String,
     ) -> Self {
         
         Self {
             file_name,
             file_type,
             mission,
-            cid,
     }
 }
     // Metadata Tree creation
-    pub async fn create_tree(&mut self) -> Result<String, Box<dyn Error>> {
+    pub async fn create_tree(&mut self, store_tree: bool) -> Result<String, Box<dyn Error>> {
         
         let leaves = self.leaf_basis_hashing().await?;
 
@@ -51,9 +48,11 @@ impl Metadata {
 
         let mut persistentstorage = PersistentRsMerkle::new(None, Some(merkletree)).await?;
 
-        // Store tree, and root
-        persistentstorage.store_tree().await?;
-        persistentstorage.store_root().await?;
+         // Store tree, and root if needed
+        if store_tree {
+            persistentstorage.store_tree().await?;
+            persistentstorage.store_root().await?;
+        }
     
         let root_hex = persistentstorage
             .tree
@@ -68,7 +67,7 @@ impl Metadata {
 
     // Leaves hashing
     async fn leaf_basis_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {
-        let metadata = [&self.file_name, &self.file_type, &self.mission, &self.cid];
+        let metadata = [&self.file_name, &self.file_type, &self.mission];
         let leaves: Vec<[u8; 32]> = metadata
             .iter()
             .map(|x| Sha256::hash(x.as_bytes()))
@@ -153,7 +152,7 @@ impl Metadata {
 
 
 pub struct MonoMetaTree {
-    tree: Monotree<Sled, Blake3>,
+    pub tree: Monotree<Sled, Blake3>,
     root: Option<[u8; 32]>,
 }
 
@@ -173,18 +172,22 @@ impl MonoMetaTree {
     // insert key-leaf pair into the tree
     pub fn insert(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> MonoTResult<()> {
         self.root = self.tree.insert(self.root.as_ref(), &key, &leaf)?;
+        self.tree.commit();
+        self.tree.set_headroot(self.root.as_ref());
         Ok(())
     }
 
     // remove en entry (aka a key) from the tree
     pub fn remove(&mut self, key: &[u8]) -> MonoTResult<()> {
         self.root = self.tree.remove(self.root.as_ref(), &key)?;
+        self.tree.commit();
+        self.tree.set_headroot(self.root.as_ref());
         Ok(())
     }
 
     // get (or find) a leaf or a leaf for a given leaf from the tree
     pub fn get(&mut self, key: &[u8; 32]) -> MonoTResult<Option<[u8; 32]>> {
-        
+        self.root = self.tree.get_headroot()?;
         match self.tree.get(self.root.as_ref(), &key)? {
             Some(leaf) => Ok(Some(leaf)),
             None => Err(Errors::new("Failed to get leaf")),
@@ -193,6 +196,7 @@ impl MonoMetaTree {
 
     // generate the Merkle proof for the root and the key
     pub fn proof(&mut self, key: &[u8; 32]) -> MonoTResult<Option<Vec<(bool, Vec<u8>)>>> {
+        self.root = self.tree.get_headroot()?;
         let proof = self.tree.get_merkle_proof(self.root.as_ref(), key)?;
         return Ok(proof)
     }

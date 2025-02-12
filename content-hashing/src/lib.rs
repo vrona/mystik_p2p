@@ -11,7 +11,7 @@ use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305};
 use rand::RngCore;
 
-const STORAGE_DIR: &str = "data/content/";
+const STORAGE_DIR: &str = "./data/content/";
 const BUFFER_SIZE: usize = 1024 * 2048;
 
 ///// CRYPTOGRAPHY SECTION
@@ -81,7 +81,6 @@ async fn check_cid(encryption_case: bool, cid: Option<&str>, input_doc_path: Opt
     // CID not found
     return Ok(false);
     
-    
     } else {
         // while in decryption case
         
@@ -124,8 +123,8 @@ async fn check_cid(encryption_case: bool, cid: Option<&str>, input_doc_path: Opt
 pub async fn encrypt_file(
     key: &[u8; 32],
     nonce: &[u8; 19],
-    input_path: &str,
-    metadata: &str) -> Result<String, Error> {
+    input_path: &str
+) -> Result<String, Error> {
     
     let mut hasher = Hasher::new();
 
@@ -169,13 +168,11 @@ pub async fn encrypt_file(
     let cid = hasher.finalize().to_hex().to_string();
 
     // CHECK existence of CID in data storage
-    let cid_path = format!("{}{}/", STORAGE_DIR, metadata);
-
-    let is_cid_exist = check_cid(true, Some(&cid), Some(&cid_path)).await?;
+    let is_cid_exist = check_cid(true, Some(&cid), Some(&STORAGE_DIR)).await?;
 
     if !is_cid_exist {
         
-        let final_path = format!("{}{}.bin", cid_path, cid);
+        let final_path = format!("{}{}.bin", STORAGE_DIR, cid);
 
         // Ensure the parent directory is created.
         if let Some(parent) = Path::new(&final_path).parent(){
@@ -200,11 +197,10 @@ pub async fn decrypt_file(
     key: &[u8; 32],
     nonce: &[u8; 19],
     cid: &str,
-    metadata: &str,
     output_path: &str
 ) -> Result<(), Error> {
    
-    let input_doc_path = format!("{}{}/{}.bin", STORAGE_DIR, metadata, cid);
+    let input_doc_path = format!("{}{}.bin", STORAGE_DIR, cid);
 
     // CHECK existence of CID in data storage
     let is_cid_exist = check_cid(false, Some(&cid), Some(&input_doc_path)).await?;

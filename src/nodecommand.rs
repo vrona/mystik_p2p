@@ -1,12 +1,16 @@
 use std::error::Error;
+
 use content_hashing::{newkey, encrypt_file, decrypt_file};
 use metadata_mrkl::{Metadata, MonoMetaTree, cid_to_bytes, bytes_to_cid};
 use file_sharing::*;
 
 
+// ╔╗╔═╦═╦═╗╔╗
+// ║╚╣╬║═╣╬╚╣╚╗
+// ╚═╩═╩═╩══╩═╝
 // Current Node - Store file
 // return private key and nonce to decrypt file if needed + MID to provided to the network
-pub async fn store_file(file_name: &str, file_type: &str, mission: &str, file_path: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
+pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
 
     // create private key and nonce for file encryption/decryption
     let (private_key, nonce) = newkey().await?;
@@ -15,7 +19,7 @@ pub async fn store_file(file_name: &str, file_type: &str, mission: &str, file_pa
     let cid = encrypt_file(&private_key, &nonce, file_path).await?; //"../ghost-ground/data/mystikp2p.png"
 
     // init the metadata
-    let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), mission.to_string());
+    let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
 
     // 1st level of Merkle (classic tree) get the metadata's MID
     let mid = cid_to_bytes(&metadata
@@ -24,7 +28,7 @@ pub async fn store_file(file_name: &str, file_type: &str, mission: &str, file_pa
         .await?;
     
     // prooving that metadata exist    
-    let leaves: &[&str] = &[file_name, file_type, mission];
+    let leaves: &[&str] = &[file_name, file_type, secret];
     let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
 
     if ! meta_exist{
@@ -51,13 +55,13 @@ pub async fn store_file(file_name: &str, file_type: &str, mission: &str, file_pa
 
 
 // Current Node - Retrieve file
-pub async fn get_cid_file(file_name: &str, file_type: &str, mission: &str)-> Result<String, Box<dyn Error>> {
+pub async fn get_cid_file(file_name: &str, file_type: &str, secret: &str)-> Result<String, Box<dyn Error>> {
 
     // init the metadata
-    let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), mission.to_string());
+    let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
 
     // prooving that metadata exist    
-    let leaves: &[&str] = &[file_name, file_type, mission];
+    let leaves: &[&str] = &[file_name, file_type, secret];
     let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
 
     if ! meta_exist{
@@ -85,14 +89,41 @@ pub async fn get_decrypt_file(private_key: [u8; 32], nonce: [u8; 19], cid: &str,
     decrypt_file(&private_key, &nonce, &cid, destination_path).await?;
     Ok(())
 }
-//     let cid = get
-//     
-//     Ok(())
-// } 
-//     // reverse the peedID 
-//     let cid_recomposed = bytes_to_cid(cid_as_leaf).await;
- 
- 
+
+pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Result<(), Box<dyn Error>> {
+
+    // init the metadata
+    let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
+
+    // prooving that metadata exist    
+    let leaves: &[&str] = &[file_name, file_type, secret];
+    let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
+
+    if ! meta_exist{
+        return Err("Given metadata are not matching records".into());
+    }
+
+    // 1st level of Merkle (classic tree) get the metadata's MID
+    let mid = cid_to_bytes(&metadata.create_tree(false).await?).await?;
+
+    // 2nd level of Merkle (Sparse tree)
+    // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
+    let mut tree = MonoMetaTree::new()?;
+
+    // remove MIDCID
+    tree.remove(&mid).expect("Critical error: Failed to remove key. Stopping execution.");
+  
+    // remove metadata tree
+    metadata.remove_record().await.expect("Critical error: Failed to remove metadata tree records. Stopping execution.");
+    
+    Ok(())
+}
+
+// ─────────╔╗
+// ╔╦╦═╦══╦═╣╚╦═╗
+// ║╔╣╩╣║║║╬║╔╣╩╣
+// ╚╝╚═╩╩╩╩═╩═╩═╝
+
 // Remote Node - Ask for file
 
 // Remote Node - Been asked for file

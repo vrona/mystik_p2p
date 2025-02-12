@@ -23,20 +23,20 @@ const STORAGE_MIDCID: &str = "../metadata-mrkl/midtocid/";
 pub struct Metadata {
     file_name: String,
     file_type: String,
-    mission: String,
+    secret: String,
 }
 
 impl Metadata {
     pub fn new(
         file_name: String,
         file_type: String,
-        mission: String,
+        secret: String,
     ) -> Self {
         
         Self {
             file_name,
             file_type,
-            mission,
+            secret,
     }
 }
     // Metadata Tree creation
@@ -67,7 +67,7 @@ impl Metadata {
 
     // Leaves hashing
     async fn leaf_basis_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {
-        let metadata = [&self.file_name, &self.file_type, &self.mission];
+        let metadata = [&self.file_name, &self.file_type, &self.secret];
         let leaves: Vec<[u8; 32]> = metadata
             .iter()
             .map(|x| Sha256::hash(x.as_bytes()))
@@ -258,8 +258,8 @@ pub async fn bytes_to_cid(bytes: [u8; 32]) -> String {
 //     empty_leaves.push(&file_name);
 //     let file_type = "txt".to_string();
 //     empty_leaves.push(&file_type);
-//     let mission = "BCX451".to_string();
-//     empty_leaves.push(&mission);
+//     let secret = "BCX451".to_string();
+//     empty_leaves.push(&secret);
 
 
 //     let cid = generate_cid(&file_name.clone()).await;
@@ -267,7 +267,7 @@ pub async fn bytes_to_cid(bytes: [u8; 32]) -> String {
 
 //     let initial_leaves: &[&str] = &empty_leaves;
     
-//     let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), mission.clone(), cid.clone());
+//     let mut metadata = Metadata::new(file_name.clone(), file_type.clone(), secret.clone(), cid.clone());
 //     let roothex_aka_mid = cid_to_bytes(&metadata.create_tree().await?).await?;
 
 

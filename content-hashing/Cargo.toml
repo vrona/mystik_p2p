@@ -7,8 +7,8 @@ repository = "https://github.com/vrona/intnet"
 edition = "2021"
 
 [dependencies]
-chacha20poly1305 = { version = "0.10.1", features = ["stream"] }
 anyhow = "1.0.95"
+chacha20poly1305 = { version = "0.10.1", features = ["stream"] }
 blake3 = "1.5.5"
 hex = "0.4.3"
 multihash = "0.19.3"

@@ -1,13 +1,3 @@
-[package]
-name = "intnet"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-content-hashing = { path = "./content-hashing" }
-file-sharing    = { path = "./file-sharing" }
-metadata-mrkl   = { path = "./metadata-mrkl" }
-
 [workspace]
 members = [ 
     "content-hashing",
@@ -16,3 +6,22 @@ members = [
     "ghost-space",
     "metadata-mrkl",
 ]
+
+resolver = "2"
+
+[package]
+name = "intnet"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+async-std = { version = "1.13.0", features = ["attributes"] }
+libp2p = { version = "0.54.1", features = [ "tokio", "cbor", "dns", "kad", "noise", "ping", "macros", "request-response", "tcp", "quic", "websocket", "yamux"] }
+tokio = { version = "1.42.0", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+content-hashing = { path = "./content-hashing" }
+file-sharing    = { path = "./file-sharing" }
+metadata-mrkl   = { path = "./metadata-mrkl" }
+

@@ -11,11 +11,11 @@ use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305};
 use rand::RngCore;
 
-const STORAGE_DIR: &str = "../content-hashing/data/";
+const STORAGE_DIR: &str = "data/content/";
 const BUFFER_SIZE: usize = 1024 * 2048;
 
 ///// CRYPTOGRAPHY SECTION
-async fn newkey() -> Result<([u8; 32], [u8; 19]), Error> {
+pub async fn newkey() -> Result<([u8; 32], [u8; 19]), Error> {
 
     let mut key = [0u8; 32];
     let mut nonce = [0u8; 19];
@@ -121,7 +121,7 @@ async fn check_cid(encryption_case: bool, cid: Option<&str>, input_doc_path: Opt
 }
 
 /// Encrypt file
-async fn encrypt_file(
+pub async fn encrypt_file(
     key: &[u8; 32],
     nonce: &[u8; 19],
     input_path: &str,
@@ -196,7 +196,7 @@ async fn encrypt_file(
 }
 
 
-async fn decrypt_file(
+pub async fn decrypt_file(
     key: &[u8; 32],
     nonce: &[u8; 19],
     cid: &str,

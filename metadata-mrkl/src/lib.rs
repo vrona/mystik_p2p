@@ -20,15 +20,15 @@ use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
 
 const STORAGE_MIDCID: &str = "../metadata-mrkl/midtocid/";
 
-struct Metadata {
+pub struct Metadata {
     file_name: String,
     file_type: String,
     mission: String,
-    cid: String,
+    pub cid: String,
 }
 
 impl Metadata {
-    fn new(
+    pub fn new(
         file_name: String,
         file_type: String,
         mission: String,
@@ -43,7 +43,7 @@ impl Metadata {
     }
 }
     // Metadata Tree creation
-    async fn create_tree(&mut self) -> Result<String, Box<dyn Error>> {
+    pub async fn create_tree(&mut self) -> Result<String, Box<dyn Error>> {
         
         let leaves = self.leaf_basis_hashing().await?;
 
@@ -67,7 +67,7 @@ impl Metadata {
 
 
     // Leaves hashing
-    pub async fn leaf_basis_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {
+    async fn leaf_basis_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {
         let metadata = [&self.file_name, &self.file_type, &self.mission, &self.cid];
         let leaves: Vec<[u8; 32]> = metadata
             .iter()
@@ -152,7 +152,7 @@ impl Metadata {
 }
 
 
-struct MonoMetaTree {
+pub struct MonoMetaTree {
     tree: Monotree<Sled, Blake3>,
     root: Option<[u8; 32]>,
 }
@@ -160,7 +160,7 @@ struct MonoMetaTree {
 impl MonoMetaTree {
 
     // init the Monotree instance (database > tree and root)
-    fn new() -> MonoTResult<Self>{
+    pub fn new() -> MonoTResult<Self>{
         
         let newtree = Monotree::<Sled, Blake3>::new(STORAGE_MIDCID);
 
@@ -171,19 +171,19 @@ impl MonoMetaTree {
     }
 
     // insert key-leaf pair into the tree
-    fn insert(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> MonoTResult<()> {
+    pub fn insert(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> MonoTResult<()> {
         self.root = self.tree.insert(self.root.as_ref(), &key, &leaf)?;
         Ok(())
     }
 
     // remove en entry (aka a key) from the tree
-    fn remove(&mut self, key: &[u8]) -> MonoTResult<()> {
+    pub fn remove(&mut self, key: &[u8]) -> MonoTResult<()> {
         self.root = self.tree.remove(self.root.as_ref(), &key)?;
         Ok(())
     }
 
     // get (or find) a leaf or a leaf for a given leaf from the tree
-    fn get(&mut self, key: &[u8; 32]) -> MonoTResult<Option<[u8; 32]>> {
+    pub fn get(&mut self, key: &[u8; 32]) -> MonoTResult<Option<[u8; 32]>> {
         
         match self.tree.get(self.root.as_ref(), &key)? {
             Some(leaf) => Ok(Some(leaf)),
@@ -192,13 +192,13 @@ impl MonoMetaTree {
     }
 
     // generate the Merkle proof for the root and the key
-    fn proof(&mut self, key: &[u8; 32]) -> MonoTResult<Option<Vec<(bool, Vec<u8>)>>> {
+    pub fn proof(&mut self, key: &[u8; 32]) -> MonoTResult<Option<Vec<(bool, Vec<u8>)>>> {
         let proof = self.tree.get_merkle_proof(self.root.as_ref(), key)?;
         return Ok(proof)
     }
 
     // generate the Merkle proof for the root and the key
-    fn verify_merkle_proof(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> MonoTResult<bool> {
+    pub fn verify_merkle_proof(&mut self, key: &[u8; 32], leaf: &[u8; 32]) -> MonoTResult<bool> {
         let protocol_hash = Blake3::new();
         let proved_key = self.proof(key)?;
         let verified = verify_proof(&protocol_hash, self.root.as_ref(), &leaf, proved_key.as_ref());
@@ -210,7 +210,7 @@ impl MonoMetaTree {
 /// String to Hex conversion
 
 /// **Converts a CID (`String` hex) into `[u8; 32]`**
-async fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
+pub async fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
     let decoded_bytes = decode(cid)?; // Decode hex string into Vec<u8>
 
     // Ensure it's exactly 32 bytes
@@ -221,7 +221,7 @@ async fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
 }
 
 /// **Converts `[u8; 32]` back into a CID (`String` hex)**
-async fn bytes_to_cid(bytes: [u8; 32]) -> String {
+pub async fn bytes_to_cid(bytes: [u8; 32]) -> String {
     encode(bytes) // Convert bytes back to hex string
 }
 

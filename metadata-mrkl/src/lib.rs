@@ -18,7 +18,7 @@ use std::convert::TryInto;
 mod store_rsmerkle;
 use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
 
-const STORAGE_MIDCID: &str = "../metadata-mrkl/midtocid/";
+const STORAGE_MIDCID: &str = "./data/metadata/midcid/";
 
 pub struct Metadata {
     file_name: String,

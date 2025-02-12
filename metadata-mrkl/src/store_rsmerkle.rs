@@ -3,7 +3,7 @@ use std::error::Error;
 
 use std::{fs, io::Write, path::Path};
 
-const STORAGE_METADATA: &str = "../metadata-mrkl/metamerkle/";
+const STORAGE_METADATA: &str = "./data/metadata/metamerkle/";
 
 pub struct RSMerkleTree{
     leaves: Vec<[u8; 32]>,

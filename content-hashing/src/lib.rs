@@ -11,7 +11,7 @@ use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305};
 use rand::RngCore;
 
-const STORAGE_DIR: &str = "./data/content/";
+pub const STORAGE_DIR: &str = "./data/content/";
 const BUFFER_SIZE: usize = 1024 * 2048;
 
 ///// CRYPTOGRAPHY SECTION

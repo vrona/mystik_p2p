@@ -1,8 +1,8 @@
 use std::error::Error;
 
-use content_hashing::{newkey, encrypt_file, decrypt_file};
+use content_hashing::{newkey, encrypt_file, decrypt_file, STORAGE_DIR};
 use metadata_mrkl::{Metadata, MonoMetaTree, cid_to_bytes, bytes_to_cid};
-use file_sharing::*;
+use file_sharing::{RunOption, ArgProvOrGet::{Get, Provide}};
 
 
 // ╔╗╔═╦═╦═╗╔╗
@@ -125,5 +125,32 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 // ╚╝╚═╩╩╩╩═╩═╩═╝
 
 // Remote Node - Ask for file
+async fn get_ntwk_file() -> Result<(), Box<dyn Error>> {
+    
+    let opt = RunOption {
+        secret_key_seed: None,
+        listen_address: None,
+        peer: Some("/ip4/127.0.0.1/udp/9000/quic-v1/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X".parse()?),
+        argument: Get { 
+            name: "kb.mp4".to_string() },
+    };
+   
+    opt.run().await
+}
+
+/// TROUVER UN MOYEN DE PASSER L'ADRESSE DU PEER
+
+async fn provide_ntwk_file(cid: &str) -> Result<(), Box<dyn Error>> {
+
+    let opt = RunOption {
+        secret_key_seed: None,
+        listen_address: Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?),
+        peer: None,
+        argument: Provide {
+            path: format!("{}/{}.bin", STORAGE_DIR, cid).into(), // "data/kb.mp4"
+            name: format!("{}.bin", cid)}, // kb.mp4
+    };
+    opt.run().await
+}
 
 // Remote Node - Been asked for file

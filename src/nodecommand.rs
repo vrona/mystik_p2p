@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use content_hashing::{newkey, encrypt_file, decrypt_file, STORAGE_DIR};
+use content_hashing::{newkey, encrypt_file, decrypt_file, remove_stored_file, STORAGE_DIR};
 use metadata_mrkl::{Metadata, MonoMetaTree, cid_to_bytes, bytes_to_cid};
 use file_sharing::{RunOption, ArgProvOrGet::{Get, Provide}};
 
@@ -90,7 +90,7 @@ pub async fn get_decrypt_file(private_key: [u8; 32], nonce: [u8; 19], cid: &str,
     Ok(())
 }
 
-pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Result<(), Box<dyn Error>> {
+pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Result<bool, Box<dyn Error>> {
 
     // init the metadata
     let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
@@ -110,13 +110,26 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
     // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
     let mut tree = MonoMetaTree::new()?;
 
-    // remove MIDCID
-    tree.remove(&mid).expect("Critical error: Failed to remove key. Stopping execution.");
-  
-    // remove metadata tree
-    metadata.remove_record().await.expect("Critical error: Failed to remove metadata tree records. Stopping execution.");
-    
-    Ok(())
+    // get the MID CID pair
+    if let Some(bytes_of_cid) = tree
+        .get(&mid)
+        .expect("Failed to retrieved CID of content to delete"){
+
+        let cid = bytes_to_cid(bytes_of_cid).await;
+        
+        // remove encrypted stored file
+        remove_stored_file(&cid).await.expect("Critical error: Failed to remove encrypted stored of removed metadata. Stopping execution.");
+
+        // remove metadata tree
+        metadata.remove_record().await.expect("Critical error: Failed to remove metadata tree records. Stopping execution.");
+
+        // remove MIDCID
+        tree.remove(&mid).expect("Critical error: Failed to remove key. Stopping execution.");
+
+        return Ok(true)
+    };
+
+    return Ok(false)
 }
 
 // ─────────╔╗
@@ -125,7 +138,7 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 // ╚╝╚═╩╩╩╩═╩═╩═╝
 
 // Remote Node - Ask for file
-async fn get_ntwk_file() -> Result<(), Box<dyn Error>> {
+async fn _get_ntwk_file() -> Result<(), Box<dyn Error>> {
     
     let opt = RunOption {
         secret_key_seed: None,
@@ -134,13 +147,12 @@ async fn get_ntwk_file() -> Result<(), Box<dyn Error>> {
         argument: Get { 
             name: "kb.mp4".to_string() },
     };
-   
     opt.run().await
 }
 
 /// TROUVER UN MOYEN DE PASSER L'ADRESSE DU PEER
 
-async fn provide_ntwk_file(cid: &str) -> Result<(), Box<dyn Error>> {
+async fn _provide_ntwk_file(cid: &str) -> Result<(), Box<dyn Error>> {
 
     let opt = RunOption {
         secret_key_seed: None,

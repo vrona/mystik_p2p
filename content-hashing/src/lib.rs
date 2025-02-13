@@ -247,7 +247,21 @@ pub async fn decrypt_file(
     Ok(())
 }
 
+pub async fn remove_stored_file(cid: &str) -> Result<(), Error> {
+   
+    let input_doc_path = format!("{}{}.bin", STORAGE_DIR, cid);
+     if !Path::new(&input_doc_path).exists() {
+        return Err(anyhow!("No CID found in persistent storage, cannot remove CID"))
+    }
 
+    // Remove the file
+    fs::remove_file(&input_doc_path)?;
+
+    println!("Successfully removed CID file: {}", input_doc_path);
+    Ok(())
+
+
+}
 // #[tokio::main]
 // async fn main() -> Result<(), Error>{
 

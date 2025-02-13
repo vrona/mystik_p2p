@@ -1177,23 +1177,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghost-ground"
-version = "0.1.0"
-dependencies = [
- "content-hashing",
- "file-sharing",
- "tokio",
-]
-
-[[package]]
-name = "ghost-space"
-version = "0.1.0"
-dependencies = [
- "file-sharing",
- "tokio",
-]
-
-[[package]]
 name = "gimli"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2656,6 +2639,30 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
+
+[[package]]
+name = "phantomg"
+version = "0.1.0"
+dependencies = [
+ "content-hashing",
+ "dotenv",
+ "file-sharing",
+ "metadata-mrkl",
+ "rand",
+ "tokio",
+]
+
+[[package]]
+name = "phantoms"
+version = "0.1.0"
+dependencies = [
+ "content-hashing",
+ "dotenv",
+ "file-sharing",
+ "metadata-mrkl",
+ "rand",
+ "tokio",
+]
 
 [[package]]
 name = "pin-project"

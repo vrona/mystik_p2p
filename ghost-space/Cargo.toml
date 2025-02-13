@@ -1,8 +1,0 @@
-[package]
-name = "ghost-space"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-tokio = { version = "1.42.0", features = ["full"] }
-file-sharing = {path = "../file-sharing" }

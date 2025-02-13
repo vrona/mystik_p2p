@@ -1,7 +1,7 @@
 use rs_merkle::{self, algorithms::Sha256, MerkleTree};
 use std::error::Error;
 
-use std::{fs, io::Write, path::Path};
+use std::{fs, path::Path};
 
 const STORAGE_METADATA: &str = "./data/metadata/metamerkle/";
 

@@ -1,4 +1,4 @@
-use std::{any::{Any, TypeId}, error::Error, result::Result, path::Path};
+use std::{error::Error, result::Result};
 
 use rs_merkle::{self, algorithms::Sha256, Hasher as MerkleHasher, MerkleTree, MerkleProof};
 

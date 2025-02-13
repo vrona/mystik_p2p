@@ -1,0 +1,12 @@
+[package]
+name = "phantomg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dotenv = "0.15.0"
+content-hashing = {path = "../content-hashing" }
+file-sharing = {path = "../file-sharing" }
+metadata-mrkl   = { path = "../metadata-mrkl" }
+rand = "0.8.5"
+tokio = { version = "1.42.0", features = ["full"] }

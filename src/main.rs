@@ -1,4 +1,3 @@
-use file_sharing::{RunOption, ArgProvOrGet};
 use rand::RngCore;
 use dotenv::dotenv;
 use std::env;
@@ -42,8 +41,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let env_decrypt_path = env::var("decrypt_path").expect("decrypt_path not found in .env");
     let decrypt_path = format!("{}data/dec/{}{}", env_decrypt_path, file_name, file_type);
 
-    let (private_key, nonce, mid) = nodecommand::store_file(&file_name, &file_type, &secret, &file_path).await?;
-    println!("Private_key: {:?}\n,Nonce: {:?}\n,MID: {:?}", private_key, nonce, mid);
+    let (private_key, nonce, _) = nodecommand::store_file(&file_name, &file_type, &secret, &file_path).await?;
+    // println!("Private_key: {:?}\n,Nonce: {:?}\n,MID: {:?}", private_key, nonce, mid);
 
     let returned_cid = nodecommand::get_cid_file(&file_name, &file_type, &secret).await?;
     let _ = nodecommand::get_decrypt_file(private_key, nonce, &returned_cid, &decrypt_path).await?;

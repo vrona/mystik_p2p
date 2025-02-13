@@ -22,9 +22,11 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
     let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
 
     // 1st level of Merkle (classic tree) get the metadata's MID
-    let mid = cid_to_bytes(&metadata
+    let mid = &metadata
         .create_tree(true)
-        .await?)
+        .await?;
+
+    let mid_as_key  = cid_to_bytes(&mid)
         .await?;
     
     // prooving that metadata exist    
@@ -41,16 +43,19 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
 
     // pairing MID as key and CID as leaf in insert 
     let cid_as_leaf = cid_to_bytes(&cid).await?;
-    tree.insert(&mid, &cid_as_leaf)?;
+    tree.insert(&mid_as_key, &cid_as_leaf)?;
 
     // Verification of MID CID pair creation
-    let midcid = tree.verify_merkle_proof(&mid, &cid_as_leaf)?;
+    let midcid = tree.verify_merkle_proof(&mid_as_key, &cid_as_leaf)?;
 
     if !midcid {
         return Err("MID-CID pair not stored in record".into());
     }
 
-    return  Ok((private_key, nonce, mid));
+    // provide the file to the network
+    provide_ntwk_file(&cid, "/ip4/127.0.0.1/udp/9000/quic-v1").await?;
+
+    return  Ok((private_key, nonce, mid_as_key));
 }
 
 
@@ -83,7 +88,6 @@ pub async fn get_cid_file(file_name: &str, file_type: &str, secret: &str)-> Resu
 
     Ok("No CID founded".into())
 } 
-
 
 pub async fn get_decrypt_file(private_key: [u8; 32], nonce: [u8; 19], cid: &str, destination_path: &str)-> Result<(), Box<dyn Error>> { // "../content-hashing/data_dec/mystikp2p.png"
     decrypt_file(&private_key, &nonce, &cid, destination_path).await?;
@@ -138,25 +142,25 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 // ╚╝╚═╩╩╩╩═╩═╩═╝
 
 // Remote Node - Ask for file
-async fn _get_ntwk_file() -> Result<(), Box<dyn Error>> {
+async fn get_ntwk_file(cid: &str,) -> Result<(), Box<dyn Error>> {
     
     let opt = RunOption {
         secret_key_seed: None,
         listen_address: None,
         peer: Some("/ip4/127.0.0.1/udp/9000/quic-v1/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X".parse()?),
         argument: Get { 
-            name: "kb.mp4".to_string() },
+            name: format!("{}.bin", cid)}, // kb.mp4
     };
     opt.run().await
 }
 
 /// TROUVER UN MOYEN DE PASSER L'ADRESSE DU PEER
 
-async fn _provide_ntwk_file(cid: &str) -> Result<(), Box<dyn Error>> {
+async fn provide_ntwk_file(cid: &str, listen_addr: &str) -> Result<(), Box<dyn Error>> {
 
     let opt = RunOption {
         secret_key_seed: None,
-        listen_address: Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?),
+        listen_address: Some(listen_addr.parse()?),
         peer: None,
         argument: Provide {
             path: format!("{}/{}.bin", STORAGE_DIR, cid).into(), // "data/kb.mp4"

@@ -2,21 +2,24 @@ use std::error::Error;
 
 use content_hashing::{newkey, encrypt_file, decrypt_file, remove_stored_file, STORAGE_DIR};
 use metadata_mrkl::{Metadata, MonoMetaTree, cid_to_bytes, bytes_to_cid};
-use file_sharing::{RunOption, ArgProvOrGet::{Get, Provide}};
+use file_sharing::{RunOption, ArgProvOrGet::{Get, Provide}, view_network};
+use libp2p::{core::Multiaddr, multiaddr::Protocol, PeerId, futures::StreamExt};
 
+use std::time::Duration;
 
 // ╔╗╔═╦═╦═╗╔╗
 // ║╚╣╬║═╣╬╚╣╚╗
 // ╚═╩═╩═╩══╩═╝
 // Current Node - Store file
 // return private key and nonce to decrypt file if needed + MID to provided to the network
-pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
+pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str, peer_bootstap: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
 
     // create private key and nonce for file encryption/decryption
     let (private_key, nonce) = newkey().await?;
 
     // get the file's CID
     let cid = encrypt_file(&private_key, &nonce, file_path).await?; //"../ghost-ground/data/mystikp2p.png"
+    println!("CID stored for test: {}", cid);
 
     // init the metadata
     let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
@@ -53,7 +56,7 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
     }
 
     // provide the file to the network
-    provide_ntwk_file(&cid, "/ip4/127.0.0.1/udp/9000/quic-v1").await?;
+    provide_ntwk_file(&cid, peer_bootstap).await?;
 
     return  Ok((private_key, nonce, mid_as_key));
 }
@@ -142,31 +145,88 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 // ╚╝╚═╩╩╩╩═╩═╩═╝
 
 // Remote Node - Ask for file
-async fn get_ntwk_file(cid: &str,) -> Result<(), Box<dyn Error>> {
+// async fn get_from_network_file(cid: &str, address: Multiaddr, peer_id: libp2p::PeerId) -> Result<(), Box<dyn Error>> {
     
-    let opt = RunOption {
-        secret_key_seed: None,
-        listen_address: None,
-        peer: Some("/ip4/127.0.0.1/udp/9000/quic-v1/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X".parse()?),
-        argument: Get { 
-            name: format!("{}.bin", cid)}, // kb.mp4
-    };
-    opt.run().await
-}
+//     let peer_address = format!("{}",address.with(Protocol::P2p(peer_id))); // /ip4/127.0.0.1/udp/9000/quic-v1/p2p/
+//     let opt = RunOption {
+//         secret_key_seed: None,
+//         listen_address: None,
+//         peer: Some(peer_address.parse()?),
+//         argument: Get { 
+//             name: format!("{}.bin", cid)}, // kb.mp4
+//     };
+//     opt.run().await
+// }
 
 /// TROUVER UN MOYEN DE PASSER L'ADRESSE DU PEER
 
-async fn provide_ntwk_file(cid: &str, listen_addr: &str) -> Result<(), Box<dyn Error>> {
+async fn provide_ntwk_file(cid: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
 
     let opt = RunOption {
         secret_key_seed: None,
-        listen_address: Some(listen_addr.parse()?),
-        peer: None,
+        listen_address: None, //Some(listen_addr.parse()?),
+        peer: Some(peer_bootstap.parse()?),
         argument: Provide {
-            path: format!("{}/{}.bin", STORAGE_DIR, cid).into(), // "data/kb.mp4"
-            name: format!("{}.bin", cid)}, // kb.mp4
+            path: format!("{}/{}.bin", STORAGE_DIR, cid).into(),
+            name: format!("{}.bin", cid)},
     };
     opt.run().await
 }
 
 // Remote Node - Been asked for file
+// pub async fn get_from_network_file(cid: &str, bootstrap_addr: Multiaddr) -> Result<(), Box<dyn Error>> {
+//     // Create the network using our public wrapper (which calls the internal network::new).
+//     let (mut network_client, mut _network_events, mut network_event_loop) =
+//         view_network(None).await?;
+    
+//     // Spawn the network event loop.
+//     tokio::spawn(async move {
+//         network_event_loop.run().await;
+//     });
+    
+//     // Dial the bootstrap node so that we join the DHT.
+//     if let Some(peer_component) = bootstrap_addr.iter().last() {
+//         if let Protocol::P2p(bootstrap_peer_id) = peer_component {
+//             network_client.dial(bootstrap_peer_id, bootstrap_addr.clone()).await?;
+//         } else {
+//             return Err("Bootstrap address must contain a PeerId.".into());
+//         }
+//     } else {
+//         return Err("Invalid bootstrap address.".into());
+//     }
+    
+//     // Give the network a moment for the DHT to update.
+//     tokio::time::sleep(Duration::from_secs(2)).await;
+    
+//     // Form the file name (this must match exactly what the provider advertised).
+//     let file_name = format!("{}.bin", cid);
+    
+//     // Query the DHT for providers of this file.
+//     let providers = network_client.get_providers(file_name.clone()).await?;
+//     if providers.is_empty() {
+//         return Err(format!("No provider found for file: {}", file_name).into());
+//     }
+    
+//     // Pick the first provider.
+//     let provider_peer_id = *providers.iter().next().unwrap();
+//     println!("Found provider PeerId: {:?}", provider_peer_id);
+    
+//     // At this point, you only have the PeerId.
+//     // You need to get the full network address (Multiaddr) to dial the provider.
+//     // Here we assume the provider is listening on a known base address.
+//     // In a real-world scenario, you might use the Identify protocol or other mechanisms.
+//     let base_addr: Multiaddr = "/ip4/127.0.0.1/udp/9000/quic-v1".parse()?;
+//     let provider_full_addr = base_addr.with(Protocol::P2p(provider_peer_id));
+//     println!("Dialing provider at: {:?}", provider_full_addr);
+    
+//     // Now build a RunOption for the GET operation using the discovered address.
+//     let opt = RunOption {
+//         secret_key_seed: None,
+//         listen_address: None,
+//         peer: Some(provider_full_addr),
+//         argument: Get { name: file_name },
+//     };
+    
+//     // Run the file retrieval.
+//     opt.run().await
+// }

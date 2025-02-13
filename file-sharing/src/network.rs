@@ -225,9 +225,9 @@ impl EventLoop {
         }
         Err(e) => {
             tracing::error!("Failed to accept inbound streams for FILE_PROTOCOL: {}", e);
-            return;
-        }
-    };
+                return;
+            }
+        };
 
         // Task that handles inbound streams in parallel, so we don't block the main loop.
         let event_sender_clone = self.event_sender.clone();
@@ -253,6 +253,10 @@ impl EventLoop {
                 },
             }
         }
+    }
+
+    pub fn local_peer_id(&self) -> PeerId {
+        self.swarm.local_peer_id().clone()
     }
 
     /// reading from an inbound stream and writing a response.

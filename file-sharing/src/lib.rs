@@ -1,14 +1,13 @@
 
 pub mod network;
 pub mod blakecheck;
-
-use std::{error::Error, path::PathBuf}; //,
-
+use tokio::time::Duration;
+use std::{error::Error, path::PathBuf};
 use futures::{prelude::*, StreamExt};
-//use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use libp2p::{core::Multiaddr, multiaddr::Protocol};
-//use tokio::task::spawn;
-use tracing_subscriber::EnvFilter;//{field::debug, };
+use tracing_subscriber::EnvFilter;
+use std::io::{self, Write};
+pub use crate::network::{Client, Event, EventLoop};
 
 #[derive(Debug)]
 pub struct RunOption {
@@ -119,41 +118,67 @@ impl RunOption {
                 }
             }
             ArgProvOrGet::Get { name } => {
-                // Find providers for the file name on the DHT.
-                let providers = network_client.get_providers(name.clone()).await?;
-                println!("Providers for {}: {:?}", name, providers);
+                
+                let peer_addr = if let Some(addr) = &self.peer {
+                    addr.clone()
+                } else {
+                    // Optionally wait a short time for DHT propagation.
+                    tokio::time::sleep(Duration::from_secs(2)).await;
 
-                if providers.is_empty() {
-                    return Err(format!("Could not find provider for file {name}.").into());
-                }
+                    // Find providers for the file name on the DHT.
+                    let providers = network_client.get_providers(name.clone()).await?;
+                    println!("Providers for {}: {:?}", name, providers);
 
-                // Try requesting the file from each provider until one succeeds.
-                let requests = providers.into_iter().map(|p| {
-                    let mut network_client = network_client.clone();
-                    let name = name.clone();
-                    async move { network_client.request_file(p, name).await }.boxed()
-                });
+                    if providers.is_empty() {
+                        return Err(format!("Could not find provider for file {name}.").into());
+                    }
+
+                    let provider_peer_id = *providers.iter().next().unwrap();
+                    println!("Automatically found provider PeerId: {:?}", provider_peer_id);
+
+                    let base_addr: Multiaddr = "/ip4/127.0.0.1/udp/9000/quic-v1".parse()?;
+                    let remote_addr = base_addr.with(Protocol::P2p(provider_peer_id));
+                    println!("Constructed multiaddr: {:?}", remote_addr);
+                    remote_addr
+                    };
+
+                    // Now, extract the PeerId from the full multiaddr.
+                    let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
+                        return Err("Determined peer address does not contain a PeerId.".into());
+                    };
+
+                    // Dial the peer
+                    network_client.dial(peer_id, peer_addr.clone()).await?;
+
+                    // Once connected, proceed to request the file.
+                    let requests = network_client
+                        .get_providers(name.clone())
+                        .await?
+                        .into_iter()
+                        .map(|p| {
+                            let mut network_client = network_client.clone();
+                            let name = name.clone();
+                            async move { network_client.request_file(p, name).await }.boxed()
+                        });
+                    // OLD Working Try requesting the file from each provider until one succeeds.
+                    // let requests = providers.into_iter().map(|p| {
+                    //     let mut network_client = network_client.clone();
+                    //     let name = name.clone();
+                    //     async move { network_client.request_file(p, name).await }.boxed()
+                    // });
 
                 let _ = futures::future::select_ok(requests)
                     .await
                     .map_err(|_| "None of the providers returned file.")?
                     .0;
-
-                /*
-                let requests = ... ^^;
-                let file_content = futures::future::select_ok(requests)
-                    .await
-                    .map_err(|_| "None of the providers returned file.")?
-                    .0;
-
-                // Write the file to stdout (or handle it however you wish).
-                let out_path = std::path::Path::new("output_test/").join(name);
-                std::fs::create_dir_all("output_test")?;
-                std::fs::write(&out_path, &file_content)?;
-                println!("File written to {:?}", out_path);
-                // std::io::stdout().write_all(&file_content)?;
-                */
             }
         }
         Ok(())}
     }
+
+pub async fn view_network(secret_seed_key: Option<u8>) -> Result<(Client, impl Stream<Item = Event>, EventLoop), Box<dyn Error>> {
+    crate::network::new(secret_seed_key)
+        .await
+        .map_err(Into::into)
+
+}

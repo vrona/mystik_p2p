@@ -1611,6 +1611,7 @@ dependencies = [
  "file-sharing",
  "libp2p",
  "metadata-mrkl",
+ "nodecommand",
  "rand",
  "tokio",
  "tracing",

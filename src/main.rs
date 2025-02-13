@@ -1,53 +1,40 @@
-use rand::RngCore;
-use dotenv::dotenv;
-use std::env;
+// launch_node.rs
+
 use std::error::Error;
+use libp2p::futures::future::pending;
+use libp2p::{Multiaddr, multiaddr::Protocol};
+use tokio::time::{sleep, Duration};
+use file_sharing::view_network; // adjust this import to point to your network module
 
-/*
-> Current Node
-via Metadata
-I store file
-I get file
-
-> Remote Node
-via Metadata
-I ask for file
-I've been asked for a file
-
-> To share files we need to provide
-
-struct RunOption {
-
-    pub secret_key_seed: Option<u8>, /// Secret key seed for deterministic peer ID (or `None` for random).
-    pub listen_address: Option<Multiaddr>, /// Address on which to listen (or `None` to listen on 0.0.0.0:0).    
-    pub peer: Option<Multiaddr>, /// Peer to dial (optional).
-    pub argument: ArgProvOrGet, /// Argument "Provide" or "Get" (optional).
-}
-
-*/
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // Launch the network node.
+    // Here we use `None` for the secret_key_seed so that the identity is generated randomly.
+    let (mut client, mut _event_stream, mut event_loop) = view_network(None).await?;
+
+    // Get the local PeerId from the event loop (assuming you have added a getter as shown above).
+    let local_peer_id = event_loop.local_peer_id();
+
+    // Spawn the event loop in a background task.
+    tokio::spawn(async move {
+        event_loop.run().await;
+    });
+
+    // Start listening on a default address.
+    // Here we choose a QUIC address with an ephemeral UDP port.
+    let listen_addr: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1".parse()?;
+    client.start_listening(listen_addr).await?;
     
-    dotenv().ok();
-    let rng = rand::thread_rng().next_u32();
-    let secret = format!("{}",rng);
-    let file_name = "mystikp2p".to_string();
-    let file_type = ".png".to_string();
+    // Give the node a moment to start listening and print its full multiaddr.
+    sleep(Duration::from_secs(1)).await;
+    
+    println!("Node launched and connected to the network.");
+    println!("Local PeerId: {}", local_peer_id);
+    
+    // The EventLoop's NewListenAddr event will also print the full multiaddr including the PeerId,
+    // for example: "/ip4/127.0.0.1/udp/12345/quic-v1/p2p/<PeerId>"
 
-    let env_file_path = env::var("file_path").expect("file_path not found in .env");
-    let file_path = format!("{}data/{}{}", env_file_path, file_name, file_type);
-
-    let env_decrypt_path = env::var("decrypt_path").expect("decrypt_path not found in .env");
-    let decrypt_path = format!("{}data/dec/{}{}", env_decrypt_path, file_name, file_type);
-
-    let (private_key, nonce, _) = nodecommand::store_file(&file_name, &file_type, &secret, &file_path).await?;
-    // println!("Private_key: {:?}\n,Nonce: {:?}\n,MID: {:?}", private_key, nonce, mid);
-
-    let returned_cid = nodecommand::get_cid_file(&file_name, &file_type, &secret).await?;
-    let _ = nodecommand::get_decrypt_file(private_key, nonce, &returned_cid, &decrypt_path).await?;
-
-    // let is_removed = nodecommand::remove_file(&&file_name, &file_type, &secret).await?;
-    // println!("All content is_removed? {}", is_removed);
-
- Ok(())
+    // Block forever so that the node keeps running.
+    pending::<()>().await;
+    Ok(())
 }

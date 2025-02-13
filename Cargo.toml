@@ -27,6 +27,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 content-hashing = { path = "./content-hashing" }
 file-sharing    = { path = "./file-sharing" }
 metadata-mrkl   = { path = "./metadata-mrkl" }
+nodecommand = { path = "./nodecommand" }
 
 
 

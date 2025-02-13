@@ -20,7 +20,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let env_decrypt_path = env::var("decrypt_path").expect("decrypt_path not found in .env");
     let decrypt_path = format!("{}data/dec/{}{}", env_decrypt_path, file_name, file_type);
 
-    let (private_key, nonce, _) = store_file(&file_name, &file_type, &secret, &file_path).await?;
+    let peer_id_bootsrap = "/ip4/192.168.1.42/udp/62404/quic-v1/p2p/12D3KooWSEphxvRh3cwBTHmDQQPw2EJ6aF9ChR4SwaCnUoC8NdTR";
+    let (private_key, nonce, _) = store_file(&file_name, &file_type, &secret, &file_path, &peer_id_bootsrap).await?;
     // println!("Private_key: {:?}\n,Nonce: {:?}\n,MID: {:?}", private_key, nonce, mid);
 
     let returned_cid = get_cid_file(&file_name, &file_type, &secret).await?;

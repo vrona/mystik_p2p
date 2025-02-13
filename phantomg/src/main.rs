@@ -2,7 +2,8 @@ use std::error::Error;
 use rand::RngCore;
 use dotenv::dotenv;
 use std::env;
-use nodecommand;
+
+use nodecommand::{store_file, get_cid_file, get_decrypt_file};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -19,12 +20,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let env_decrypt_path = env::var("decrypt_path").expect("decrypt_path not found in .env");
     let decrypt_path = format!("{}data/dec/{}{}", env_decrypt_path, file_name, file_type);
 
-    let (private_key, nonce, _) = nodecommand::store_file(&file_name, &file_type, &secret, &file_path).await?;
+    let (private_key, nonce, _) = store_file(&file_name, &file_type, &secret, &file_path).await?;
     // println!("Private_key: {:?}\n,Nonce: {:?}\n,MID: {:?}", private_key, nonce, mid);
 
-    let returned_cid = nodecommand::get_cid_file(&file_name, &file_type, &secret).await?;
-    nodecommand::get_decrypt_file(private_key, nonce, &returned_cid, &decrypt_path).await?;
+    let returned_cid = get_cid_file(&file_name, &file_type, &secret).await?;
+    let _ = get_decrypt_file(private_key, nonce, &returned_cid, &decrypt_path).await;
 
+
+    Ok(())
 
     // ORIGINAL TEST FILE-SHARING
     // let opt = RunOption {

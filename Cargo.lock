@@ -2408,6 +2408,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "nodecommand"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-std",
+ "content-hashing",
+ "dotenv",
+ "file-sharing",
+ "libp2p",
+ "metadata-mrkl",
+ "rand",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "nodrop"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2648,6 +2665,7 @@ dependencies = [
  "dotenv",
  "file-sharing",
  "metadata-mrkl",
+ "nodecommand",
  "rand",
  "tokio",
 ]
@@ -2660,6 +2678,7 @@ dependencies = [
  "dotenv",
  "file-sharing",
  "metadata-mrkl",
+ "nodecommand",
  "rand",
  "tokio",
 ]

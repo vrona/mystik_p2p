@@ -8,6 +8,7 @@ members = [
     "content-hashing",
     "file-sharing",
     "metadata-mrkl",
+    "nodecommand",
     "phantomg",
     "phantoms",
 ]

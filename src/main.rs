@@ -2,7 +2,6 @@ use rand::RngCore;
 use dotenv::dotenv;
 use std::env;
 use std::error::Error;
-mod nodecommand;
 
 /*
 > Current Node

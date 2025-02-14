@@ -12,7 +12,8 @@ data/metadata/midcid/*
 /example
 
 .env
-
+.env.bootstrap1
+.env.bootstrap2
 # Logs
 logs
 *.log

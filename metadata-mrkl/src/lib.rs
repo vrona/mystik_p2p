@@ -229,6 +229,20 @@ pub async fn bytes_to_cid(bytes: [u8; 32]) -> String {
     encode(bytes) // Convert bytes back to hex string
 }
 
+// IMPORTANT -- THIS WILL REPLACE UP THERE LATER
+/// Converts a HEX string into a fixed-size byte array of size `N`.
+pub async fn hex_to_bytes<const N: usize>(hex_str: &str) -> Result<[u8; N], Box<dyn Error>> {
+    let decoded_bytes = decode(hex_str)?;
+    let byte_array: [u8; N] = decoded_bytes
+        .try_into()
+        .map_err(|_| format!("Hex string is not {} bytes long", N))?;
+    Ok(byte_array)
+}
+
+/// Converts a fixed-size byte array of size `N` back into a HEX string.
+pub async fn bytes_to_hex<const N: usize>(bytes: [u8; N]) -> String {
+    encode(bytes)
+}
 
 ///// CRYPTOGRAPHY SECTION
 // async fn newkey() -> Result<([u8; 32], [u8; 19]), Box <dyn Error>> {

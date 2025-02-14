@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use content_hashing::{newkey, encrypt_file, decrypt_file, remove_stored_file, STORAGE_DIR};
-use metadata_mrkl::{Metadata, MonoMetaTree, cid_to_bytes, bytes_to_cid};
+use metadata_mrkl::{Metadata, MonoMetaTree, cid_to_bytes, bytes_to_cid, hex_to_bytes, bytes_to_hex};
 use file_sharing::{RunOption, ArgProvOrGet::{Get, Provide}, view_network};
 use libp2p::{core::Multiaddr, multiaddr::Protocol, PeerId, futures::StreamExt};
 
@@ -12,7 +12,7 @@ use std::time::Duration;
 // ╚═╩═╩═╩══╩═╝
 // Current Node - Store file
 // return private key and nonce to decrypt file if needed + MID to provided to the network
-pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str, peer_bootstap: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
+pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str, listen_addr: &str, peer_bootstap: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
 
     // create private key and nonce for file encryption/decryption
     let (private_key, nonce) = newkey().await?;
@@ -55,9 +55,15 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
         return Err("MID-CID pair not stored in record".into());
     }
 
-    // provide the file to the network
-    provide_ntwk_file(&cid, peer_bootstap).await?;
+    let hex_key = bytes_to_hex::<32>(private_key).await;
+    println!("TEST 🔑 private_key: {:?}", hex_key);
+    let hex_nonce = bytes_to_hex::<19>(nonce).await;
+    print!("\n");
+    println!("TEST 🔢 nonce: {:?}", hex_nonce);
 
+    // provide the file to the network
+    provide_ntwk_file(&cid, listen_addr, peer_bootstap).await?;
+    
     return  Ok((private_key, nonce, mid_as_key));
 }
 
@@ -92,7 +98,9 @@ pub async fn get_cid_file(file_name: &str, file_type: &str, secret: &str)-> Resu
     Ok("No CID founded".into())
 } 
 
-pub async fn get_decrypt_file(private_key: [u8; 32], nonce: [u8; 19], cid: &str, destination_path: &str)-> Result<(), Box<dyn Error>> { // "../content-hashing/data_dec/mystikp2p.png"
+pub async fn get_decrypt_file(hex_key: &str, hex_nonce: &str, cid: &str, destination_path: &str)-> Result<(), Box<dyn Error>> { // "../content-hashing/data_dec/mystikp2p.png"
+    let private_key: [u8; 32] = hex_to_bytes::<32>(hex_key).await?;
+    let nonce: [u8; 19] = hex_to_bytes::<19>(hex_nonce).await?;
     decrypt_file(&private_key, &nonce, &cid, destination_path).await?;
     Ok(())
 }
@@ -160,11 +168,11 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 
 /// TROUVER UN MOYEN DE PASSER L'ADRESSE DU PEER
 
-async fn provide_ntwk_file(cid: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
+async fn provide_ntwk_file(cid: &str, listen_addr: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
 
     let opt = RunOption {
         secret_key_seed: None,
-        listen_address: None, //Some(listen_addr.parse()?),
+        listen_address:Some(listen_addr.parse()?), //Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?), //Some(listen_addr.parse()?),
         peer: Some(peer_bootstap.parse()?),
         argument: Provide {
             path: format!("{}/{}.bin", STORAGE_DIR, cid).into(),

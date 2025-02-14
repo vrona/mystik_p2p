@@ -11,6 +11,8 @@ data/metadata/*
 data/metadata/midcid/*
 /example
 
+.env
+
 # Logs
 logs
 *.log

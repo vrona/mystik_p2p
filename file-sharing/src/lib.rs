@@ -9,6 +9,9 @@ use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
 pub use crate::network::{Client, Event, EventLoop};
 
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 #[derive(Debug)]
 pub struct RunOption {
     /// Secret key seed for deterministic peer ID (or `None` for random).
@@ -37,13 +40,20 @@ impl RunOption {
         .try_init();
 
         // Create the network, obtaining a client, an event stream, and a network loop.
-        let (mut network_client, mut network_events, mut network_event_loop) =
+        let (mut network_client, mut network_events, network_event_loop) =
             network::new(self.secret_key_seed).await?;
 
+        // Wrap the event loop in an Arc<Mutex<...>>
+        let network_event_loop = Arc::new(Mutex::new(network_event_loop));
+        
         // Spawn the network in the background.
-        tokio::spawn(async move {
-            network_event_loop.run().await;
-        });
+
+        {
+            let event_loop_clone = network_event_loop.clone();
+                tokio::spawn(async move {
+                event_loop_clone.lock().await.run().await;
+            });
+        }
 
         // Listen on the user-provided address, or fallback to /ip4/0.0.0.0/udp/0/quic-v1.
         match &self.listen_address {
@@ -136,11 +146,22 @@ impl RunOption {
                     let provider_peer_id = *providers.iter().next().unwrap();
                     println!("Automatically found provider PeerId: {:?}", provider_peer_id);
 
-                    let base_addr: Multiaddr = "/ip4/127.0.0.1/udp/9000/quic-v1".parse()?;
-                    let remote_addr = base_addr.with(Protocol::P2p(provider_peer_id));
-                    println!("Constructed multiaddr: {:?}", remote_addr);
-                    remote_addr
+                    // Use the shared event loop to retrieve known addresses.
+                    let remote_addr: Multiaddr = {
+                        let known_addrs: Vec<Multiaddr> = {
+                            // Lock the event loop to get the addresses.
+                            let mut event_loop_lock = network_event_loop.lock().await;
+                            event_loop_lock.get_peer_addresses(&provider_peer_id)
+                        };
+                        
+                        // Use the first known address and append the /p2p/ component.
+                        known_addrs
+                            .first()
+                            .map(|addr| addr.clone().with(Protocol::P2p(provider_peer_id)))
+                            .ok_or_else(|| Box::<dyn std::error::Error>::from("No known addresses for the provider."))?
                     };
+                    remote_addr
+                };
 
                     // Now, extract the PeerId from the full multiaddr.
                     let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
@@ -149,6 +170,9 @@ impl RunOption {
 
                     // Dial the peer
                     network_client.dial(peer_id, peer_addr.clone()).await?;
+
+                    // Optionally wait a short time for the DHT to propagate provider records.
+                    tokio::time::sleep(Duration::from_secs(2)).await;
 
                     // Once connected, proceed to request the file.
                     let requests = network_client

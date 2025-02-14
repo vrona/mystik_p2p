@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Error as AnyhowError};
 use crate::blakecheck::receive_file_with_hash;
 // use std::io::Write;
+use libp2p::kad::KBucketKey;
 
 use std::{
     collections::{hash_map, HashMap, HashSet}, // , error::Error as StdError
@@ -257,6 +258,35 @@ impl EventLoop {
 
     pub fn local_peer_id(&self) -> PeerId {
         self.swarm.local_peer_id().clone()
+    }
+
+    // Returns a reference to the underlying swarm for debugging.
+    pub fn bootstrap(&mut self) -> Result<kad::QueryId, kad::NoKnownPeers> {
+        self.swarm.behaviour_mut().kademlia.bootstrap()
+    
+    }
+
+    /// Returns the known multiaddresses for the given `peer_id` by iterating over the routing table.
+    pub fn get_peer_addresses(&mut self, target: &PeerId) -> Vec<Multiaddr> {
+        
+        // Convert your target PeerId into a KBucket key.
+        let target_key = KBucketKey::new(target.to_bytes());
+        
+        let mut addrs = Vec::new();
+
+        // Iterate over all buckets in the routing table.
+        for bucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
+            // Each bucket contains entries that have a key and associated addresses.
+            for entry in bucket.iter() {
+                // Compare the entry's peer id with the target.
+                if *entry.node.key == target_key {
+                    // `entry.node.value()` is typically a collection of Multiaddrs.
+                    // The API might vary; adjust as needed.
+                    addrs.extend(entry.node.value.iter().cloned());
+                }
+            }
+        }
+        addrs
     }
 
     /// reading from an inbound stream and writing a response.

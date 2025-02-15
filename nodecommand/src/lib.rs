@@ -18,34 +18,34 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
     let (private_key, nonce) = newkey().await?;
 
     // get the file's CID
-    let cid = encrypt_file(&private_key, &nonce, file_path).await?; //"../ghost-ground/data/mystikp2p.png"
-    println!("CID stored for test: {}", cid);
+    let cid_as_hex = encrypt_file(&private_key, &nonce, file_path).await?; //"../ghost-ground/data/mystikp2p.png"
+    println!("CID stored for test: {}", cid_as_hex);
 
     // init the metadata
     let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
 
     // 1st level of Merkle (classic tree) get the metadata's MID
-    let mid = &metadata
+    let mid_as_hex = &metadata
         .create_tree(true)
         .await?;
 
-    let mid_as_key  = hex_to_bytes::<32>(&mid)
+    let mid_as_key  = hex_to_bytes::<32>(&mid_as_hex)
         .await?;
     
     // prooving that metadata exist    
     let leaves: &[&str] = &[file_name, file_type, secret];
-    /*let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
+    let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
 
     if ! meta_exist{
         return Err("Given metadata are not stored in record".into());
-    }*/
+    }
 
     // 2nd level of Merkle (Sparse tree)
     // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
     let mut tree = MonoMetaTree::new()?;
 
     // pairing MID as key and CID as leaf in insert 
-    let cid_as_leaf = hex_to_bytes::<32>(&cid).await?;
+    let cid_as_leaf = hex_to_bytes::<32>(&cid_as_hex).await?;
     tree.insert(&mid_as_key, &cid_as_leaf)?;
 
     // Verification of MID CID pair creation
@@ -60,11 +60,31 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
     let hex_nonce = bytes_to_hex::<19>(nonce).await;
     print!("\n");
     println!("TEST 🔢 nonce: {:?}", hex_nonce);
+    print!("\n");
+    let hex_mid = bytes_to_hex::<32>(mid_as_key).await;
+    print!("\n");
+    println!("TEST 🔢 hex_mid: {:?}", hex_mid);
 
     // provide the file to the network
-    provide_ntwk_file(&cid, listen_addr, peer_bootstap).await?;
+    provide_ntwk_file(mid_as_key, listen_addr, peer_bootstap).await?;
     
     return  Ok((private_key, nonce, mid_as_key));
+}
+
+
+pub async  fn midkey_to_cidhex(mid_as_key: [u8;32])-> Result<String, Box<dyn Error>> {
+    // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
+    let mut tree = MonoMetaTree::new()?;
+
+    // get the MID CID pair
+    if let Some(bytes_of_cid) = tree.get(&mid_as_key)?{
+        let cid_as_hex = bytes_to_hex::<32>(bytes_of_cid).await;
+
+        println!("cid test get_cid_file: {}", cid_as_hex);
+        return Ok(cid_as_hex)
+    };
+
+    Ok("Wrong MID or No CID founded".into())
 }
 
 
@@ -83,27 +103,21 @@ pub async fn get_cid_file(file_name: &str, file_type: &str, secret: &str)-> Resu
     }
 
     // 1st level of Merkle (classic tree) get the metadata's MID
-    let mid = hex_to_bytes::<32>(&metadata.create_tree(false).await?).await?;
+    let mid_as_key = hex_to_bytes::<32>(&metadata.create_tree(false).await?).await?;
 
     // 2nd level of Merkle (Sparse tree)
-    // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
-    let mut tree = MonoMetaTree::new()?;
-
     // get the MID CID pair
-    if let Some(bytes_of_cid) = tree.get(&mid)?{
-        let cid = bytes_to_hex::<32>(bytes_of_cid).await;
+    let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
+       
+    println!("cid test get_cid_file: {}", cid_as_hex);
+    Ok(cid_as_hex)
 
-        println!("cid test get_cid_file: {}", cid);
-        return Ok(cid)
-    };
-
-    Ok("No CID founded".into())
 } 
 
-pub async fn get_decrypt_file(hex_key: &str, hex_nonce: &str, cid: &str, destination_path: &str)-> Result<(), Box<dyn Error>> { // "../content-hashing/data_dec/mystikp2p.png"
+pub async fn get_decrypt_file(hex_key: &str, hex_nonce: &str, cid_as_hex: &str, destination_path: &str)-> Result<(), Box<dyn Error>> { // "../content-hashing/data_dec/mystikp2p.png"
     let private_key: [u8; 32] = hex_to_bytes::<32>(hex_key).await?;
     let nonce: [u8; 19] = hex_to_bytes::<19>(hex_nonce).await?;
-    decrypt_file(&private_key, &nonce, cid, destination_path).await?;
+    decrypt_file(&private_key, &nonce, cid_as_hex, destination_path).await?;
     Ok(())
 }
 
@@ -121,7 +135,7 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
     }
 
     // 1st level of Merkle (classic tree) get the metadata's MID
-    let mid = hex_to_bytes::<32>(&metadata.create_tree(false).await?).await?;
+    let mid_as_key = hex_to_bytes::<32>(&metadata.create_tree(false).await?).await?;
 
     // 2nd level of Merkle (Sparse tree)
     // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
@@ -129,19 +143,19 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 
     // get the MID CID pair
     if let Some(bytes_of_cid) = tree
-        .get(&mid)
+        .get(&mid_as_key)
         .expect("Failed to retrieved CID of content to delete"){
 
-        let cid = bytes_to_hex::<32>(bytes_of_cid).await;
+        let cid_as_hex = bytes_to_hex::<32>(bytes_of_cid).await;
         
         // remove encrypted stored file
-        remove_stored_file(&cid).await.expect("Critical error: Failed to remove encrypted stored of removed metadata. Stopping execution.");
+        remove_stored_file(&cid_as_hex).await.expect("Critical error: Failed to remove encrypted stored of removed metadata. Stopping execution.");
 
         // remove metadata tree
         metadata.remove_record().await.expect("Critical error: Failed to remove metadata tree records. Stopping execution.");
 
         // remove MIDCID
-        tree.remove(&mid).expect("Critical error: Failed to remove key. Stopping execution.");
+        tree.remove(&mid_as_key).expect("Critical error: Failed to remove key. Stopping execution.");
 
         return Ok(true)
     };
@@ -168,26 +182,32 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 //     opt.run().await
 // }
 
-async fn provide_ntwk_file(cid: &str, listen_addr: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
-        
+async fn provide_ntwk_file(mid_as_key: [u8;32], listen_addr: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
+
+    let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
+    
     let opt = RunOption {
         secret_key_seed: None,
         listen_address:Some(listen_addr.parse()?), //Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?), //Some(listen_addr.parse()?),
         peer: Some(peer_bootstap.parse()?),
         argument: Provide {
-            path: format!("{}/{}.bin", get_storage_dir(), cid).into(),
-            name: format!("{}.bin", cid)},
+            path: format!("{}/{}.bin", get_storage_dir(), cid_as_hex).into(),
+            name: format!("{}.bin", cid_as_hex)},
     };
     opt.run().await
 }
 
-async fn get_ntwk_file(cid: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
-        
+async fn get_ntwk_file(mid_as_hex: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
+    let mid_as_key  = hex_to_bytes::<32>(&mid_as_hex)
+        .await?;
+
+    let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
+
     let opt = RunOption {
         secret_key_seed: None,
         listen_address: None,
         peer: Some(peer_bootstap.parse()?),
-        argument: Get { name: format!("{}.bin", cid) },
+        argument: Get { name: format!("{}.bin", cid_as_hex) },
     };
     opt.run().await
 }

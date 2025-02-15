@@ -18,7 +18,10 @@ use std::convert::TryInto;
 mod store_rsmerkle;
 use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
 
-const STORAGE_MIDCID: &str = "./data/metadata/midcid/";
+//pub const STORAGE_MIDCID: &str = "./data/metadata/midcid/";
+pub fn get_storage_midcid() -> String {
+    std::env::var("STORAGE_MIDCID").unwrap_or_else(|_| "./data/metadata/midcid/".to_string())
+}
 
 pub struct Metadata {
     file_name: String,
@@ -161,7 +164,7 @@ impl MonoMetaTree {
     // init the Monotree instance (database > tree and root)
     pub fn new() -> MonoTResult<Self>{
         
-        let newtree = Monotree::<Sled, Blake3>::new(STORAGE_MIDCID);
+        let newtree = Monotree::<Sled, Blake3>::new(&get_storage_midcid());
 
         Ok(MonoMetaTree{
             tree: newtree,
@@ -211,25 +214,8 @@ impl MonoMetaTree {
 
 }
 
-/// String to Hex conversion
+/// String to Hex conversion (CID and MID essentially)
 
-/// **Converts a CID (`String` hex) into `[u8; 32]`**
-pub async fn cid_to_bytes(cid: &str) -> Result<[u8; 32], Box<dyn Error>> {
-    let decoded_bytes = decode(cid)?; // Decode hex string into Vec<u8>
-
-    // Ensure it's exactly 32 bytes
-    let byte_array: [u8; 32] = decoded_bytes
-        .try_into()
-        .map_err(|_| "Hex string is not 32 bytes long")?;
-    Ok(byte_array)
-}
-
-/// **Converts `[u8; 32]` back into a CID (`String` hex)**
-pub async fn bytes_to_cid(bytes: [u8; 32]) -> String {
-    encode(bytes) // Convert bytes back to hex string
-}
-
-// IMPORTANT -- THIS WILL REPLACE UP THERE LATER
 /// Converts a HEX string into a fixed-size byte array of size `N`.
 pub async fn hex_to_bytes<const N: usize>(hex_str: &str) -> Result<[u8; N], Box<dyn Error>> {
     let decoded_bytes = decode(hex_str)?;

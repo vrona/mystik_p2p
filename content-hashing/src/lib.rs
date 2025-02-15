@@ -11,7 +11,11 @@ use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305};
 use rand::RngCore;
 
-pub const STORAGE_DIR: &str = "./data/content/";
+// pub const STORAGE_DIR: &str = "./data/content/";
+pub fn get_storage_dir() -> String {
+    std::env::var("STORAGE_DIR").unwrap_or_else(|_| "./data/content/".to_string())
+}
+
 const BUFFER_SIZE: usize = 1024 * 2048;
 
 ///// CRYPTOGRAPHY SECTION
@@ -128,7 +132,7 @@ pub async fn encrypt_file(
     
     let mut hasher = Hasher::new();
 
-    let tmp_output_path = format!("{}encdoc.tmp", STORAGE_DIR);
+    let tmp_output_path = format!("{}encdoc.tmp", get_storage_dir());
     
     let mut tmp_output = BufWriter::new(File::create(&tmp_output_path)?);
 
@@ -168,11 +172,11 @@ pub async fn encrypt_file(
     let cid = hasher.finalize().to_hex().to_string();
 
     // CHECK existence of CID in data storage
-    let is_cid_exist = check_cid(true, Some(&cid), Some(&STORAGE_DIR)).await?;
+    let is_cid_exist = check_cid(true, Some(&cid), Some(&get_storage_dir())).await?;
 
     if !is_cid_exist {
         
-        let final_path = format!("{}{}.bin", STORAGE_DIR, cid);
+        let final_path = format!("{}{}.bin", get_storage_dir(), cid);
 
         // Ensure the parent directory is created.
         if let Some(parent) = Path::new(&final_path).parent(){
@@ -200,7 +204,7 @@ pub async fn decrypt_file(
     output_path: &str
 ) -> Result<(), Error> {
    
-    let input_doc_path = format!("{}{}.bin", STORAGE_DIR, cid);
+    let input_doc_path = format!("{}{}.bin", get_storage_dir(), cid);
 
     // CHECK existence of CID in data storage
     let is_cid_exist = check_cid(false, Some(&cid), Some(&input_doc_path)).await?;
@@ -249,7 +253,7 @@ pub async fn decrypt_file(
 
 pub async fn remove_stored_file(cid: &str) -> Result<(), Error> {
    
-    let input_doc_path = format!("{}{}.bin", STORAGE_DIR, cid);
+    let input_doc_path = format!("{}{}.bin", get_storage_dir(), cid);
      if !Path::new(&input_doc_path).exists() {
         return Err(anyhow!("No CID found in persistent storage, cannot remove CID"))
     }

@@ -3,7 +3,10 @@ use std::error::Error;
 
 use std::{fs, path::Path};
 
-const STORAGE_METADATA: &str = "./data/metadata/metamerkle/";
+//const STORAGE_METADATA: &str = "./data/metadata/metamerkle/";
+pub fn get_storage_metadata() -> String {
+    std::env::var("STORAGE_METADATA").unwrap_or_else(|_| "./data/metadata/metamerkle/".to_string())
+}
 
 pub struct RSMerkleTree{
     leaves: Vec<[u8; 32]>,
@@ -30,9 +33,9 @@ impl PersistentRsMerkle {
         
         let storage_roothex = if let Some(ref tree) = tree {
            
-            format!("{}{}/", STORAGE_METADATA, tree.root_hex().ok_or("couldn't get the merkle root")?)
+            format!("{}{}/", get_storage_metadata(), tree.root_hex().ok_or("couldn't get the merkle root")?)
         } else {
-            format!("{}{}/", STORAGE_METADATA, root_hex.unwrap_or("default_root_hex"))
+            format!("{}{}/", get_storage_metadata(), root_hex.unwrap_or("default_root_hex"))
         };
 
         fs::create_dir_all(&storage_roothex)?;

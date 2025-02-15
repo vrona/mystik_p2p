@@ -185,8 +185,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     secret
                 ).await {
                     Ok(returned_cid) => {
-                        let env_decrypt_path = env::var("decrypt_path").expect("decrypt_path not found in .env");
-                        let decrypt_path = format!("{}data/dec/{}{}", env_decrypt_path, file_name, file_type);
+                        // let env_decrypt_path = env::var("decrypt_path").expect("decrypt_path not found in .env");
+                        println!("Debug: Returned CID: {:?}", returned_cid);
+                        let decrypt_path = format!("/Volumes/vrona_SSD/rust_premiere/backup_old_mystik>p2p/data/dec/{}{}", file_name, file_type);
                         nodecommand::get_decrypt_file(private_key, nonce, &returned_cid, &decrypt_path).await?;
                         println!("File retrieved successfully.")
                     },

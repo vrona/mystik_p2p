@@ -1,7 +1,7 @@
 use std::error::Error;
 
-use content_hashing::{newkey, encrypt_file, decrypt_file, remove_stored_file, STORAGE_DIR};
-use metadata_mrkl::{Metadata, MonoMetaTree, cid_to_bytes, bytes_to_cid, hex_to_bytes, bytes_to_hex};
+use content_hashing::{newkey, encrypt_file, decrypt_file, remove_stored_file, get_storage_dir};
+use metadata_mrkl::{Metadata, MonoMetaTree, hex_to_bytes, bytes_to_hex};
 use file_sharing::{RunOption, ArgProvOrGet::{Get, Provide}, view_network};
 use libp2p::{core::Multiaddr, multiaddr::Protocol, PeerId, futures::StreamExt};
 
@@ -29,23 +29,23 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
         .create_tree(true)
         .await?;
 
-    let mid_as_key  = cid_to_bytes(&mid)
+    let mid_as_key  = hex_to_bytes::<32>(&mid)
         .await?;
     
     // prooving that metadata exist    
     let leaves: &[&str] = &[file_name, file_type, secret];
-    let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
+    /*let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
 
     if ! meta_exist{
         return Err("Given metadata are not stored in record".into());
-    }
+    }*/
 
     // 2nd level of Merkle (Sparse tree)
     // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
     let mut tree = MonoMetaTree::new()?;
 
     // pairing MID as key and CID as leaf in insert 
-    let cid_as_leaf = cid_to_bytes(&cid).await?;
+    let cid_as_leaf = hex_to_bytes::<32>(&cid).await?;
     tree.insert(&mid_as_key, &cid_as_leaf)?;
 
     // Verification of MID CID pair creation
@@ -83,7 +83,7 @@ pub async fn get_cid_file(file_name: &str, file_type: &str, secret: &str)-> Resu
     }
 
     // 1st level of Merkle (classic tree) get the metadata's MID
-    let mid = cid_to_bytes(&metadata.create_tree(false).await?).await?;
+    let mid = hex_to_bytes::<32>(&metadata.create_tree(false).await?).await?;
 
     // 2nd level of Merkle (Sparse tree)
     // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
@@ -91,7 +91,9 @@ pub async fn get_cid_file(file_name: &str, file_type: &str, secret: &str)-> Resu
 
     // get the MID CID pair
     if let Some(bytes_of_cid) = tree.get(&mid)?{
-        let cid = bytes_to_cid(bytes_of_cid).await;
+        let cid = bytes_to_hex::<32>(bytes_of_cid).await;
+
+        println!("cid test get_cid_file: {}", cid);
         return Ok(cid)
     };
 
@@ -101,7 +103,7 @@ pub async fn get_cid_file(file_name: &str, file_type: &str, secret: &str)-> Resu
 pub async fn get_decrypt_file(hex_key: &str, hex_nonce: &str, cid: &str, destination_path: &str)-> Result<(), Box<dyn Error>> { // "../content-hashing/data_dec/mystikp2p.png"
     let private_key: [u8; 32] = hex_to_bytes::<32>(hex_key).await?;
     let nonce: [u8; 19] = hex_to_bytes::<19>(hex_nonce).await?;
-    decrypt_file(&private_key, &nonce, &cid, destination_path).await?;
+    decrypt_file(&private_key, &nonce, cid, destination_path).await?;
     Ok(())
 }
 
@@ -119,7 +121,7 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
     }
 
     // 1st level of Merkle (classic tree) get the metadata's MID
-    let mid = cid_to_bytes(&metadata.create_tree(false).await?).await?;
+    let mid = hex_to_bytes::<32>(&metadata.create_tree(false).await?).await?;
 
     // 2nd level of Merkle (Sparse tree)
     // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
@@ -130,7 +132,7 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
         .get(&mid)
         .expect("Failed to retrieved CID of content to delete"){
 
-        let cid = bytes_to_cid(bytes_of_cid).await;
+        let cid = bytes_to_hex::<32>(bytes_of_cid).await;
         
         // remove encrypted stored file
         remove_stored_file(&cid).await.expect("Critical error: Failed to remove encrypted stored of removed metadata. Stopping execution.");
@@ -166,17 +168,26 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 //     opt.run().await
 // }
 
-/// TROUVER UN MOYEN DE PASSER L'ADRESSE DU PEER
-
 async fn provide_ntwk_file(cid: &str, listen_addr: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
-
+        
     let opt = RunOption {
         secret_key_seed: None,
         listen_address:Some(listen_addr.parse()?), //Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?), //Some(listen_addr.parse()?),
         peer: Some(peer_bootstap.parse()?),
         argument: Provide {
-            path: format!("{}/{}.bin", STORAGE_DIR, cid).into(),
+            path: format!("{}/{}.bin", get_storage_dir(), cid).into(),
             name: format!("{}.bin", cid)},
+    };
+    opt.run().await
+}
+
+async fn get_ntwk_file(cid: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
+        
+    let opt = RunOption {
+        secret_key_seed: None,
+        listen_address: None,
+        peer: Some(peer_bootstap.parse()?),
+        argument: Get { name: format!("{}.bin", cid) },
     };
     opt.run().await
 }

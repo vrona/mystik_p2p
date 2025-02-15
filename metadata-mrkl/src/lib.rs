@@ -163,8 +163,11 @@ impl MonoMetaTree {
 
     // init the Monotree instance (database > tree and root)
     pub fn new() -> MonoTResult<Self>{
+
+        let storage_midcid = format!("{}", get_storage_midcid());
+        println!("SEE MIDCID {}", storage_midcid);
         
-        let newtree = Monotree::<Sled, Blake3>::new(&get_storage_midcid());
+        let newtree = Monotree::<Sled, Blake3>::new(&storage_midcid);
 
         Ok(MonoMetaTree{
             tree: newtree,
@@ -193,7 +196,7 @@ impl MonoMetaTree {
         self.root = self.tree.get_headroot()?;
         match self.tree.get(self.root.as_ref(), &key)? {
             Some(leaf) => Ok(Some(leaf)),
-            None => Err(Errors::new("Failed to get leaf")),
+            None => Err(Errors::new(&format!("Failed to get leaf{:?}", key))),
         }
     }
 

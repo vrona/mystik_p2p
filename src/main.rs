@@ -126,7 +126,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Provide a simple command-line loop that allows the user (or an AI agent)
     // to call high-level functions such as store_file() and get_cid_file().
     
-    println!("Enter command: (store <file_name> <file_type> <secret> <file_path> | get <file_name> <file_type> <secret> <private_key> <nonce> | exit)");
+    println!(
+        "Enter command: (
+        store <file_name> <file_type> <secret> <file_path>
+        | spread <mid (metadata id)>
+        | call <mid (metadata id)>
+        | get <file_name> <file_type> <secret> <private_key> <nonce>
+        | exit)");
     
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -159,6 +165,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     Err(e) => eprintln!("Error storing file: {}", e),
                 }
 
+            }
+            "spread" => {
+                if parts.len() == 2 {
+                    let mid_as_hex = parts[1];
+                    let listen_addr = "/ip4/0.0.0.0/udp/0/quic-v1";
+                    let peer_bootstrap = "/ip4/127.0.0.1/udp/9001/quic-v1/p2p/12D3KooWMzg8FK5YW9SSov78gYudoeJxsWy4GbjMg7fA6JKv2X8T";//env::var("BOOTSTRAP_ADDR_2")?;
+                    
+                    match nodecommand::spread_file_ntwk(mid_as_hex, listen_addr, peer_bootstrap).await {
+                        Ok(()) => print!("File transmitted successfully!"),
+                        Err(e) => eprintln!("Error transmitting file: {}", e),
+                        
+                    }
+                }
+            }
+            "call" => {
+                if parts.len() == 2 {
+                    let mid_as_hex = parts[1];
+                    let peer_bootstrap = "/ip4/127.0.0.1/udp/9001/quic-v1/p2p/12D3KooWMzg8FK5YW9SSov78gYudoeJxsWy4GbjMg7fA6JKv2X8T";//env::var("BOOTSTRAP_ADDR_2")?;
+                    
+                    match nodecommand::call_file_ntwk(mid_as_hex, peer_bootstrap).await {
+                        Ok(()) => print!("File transmitted successfully!"),
+                        Err(e) => eprintln!("Error transmitting file: {}", e),
+                        
+                    }
+                }
             }
             "get" => {
 

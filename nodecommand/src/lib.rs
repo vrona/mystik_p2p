@@ -12,7 +12,7 @@ use std::time::Duration;
 // ╚═╩═╩═╩══╩═╝
 // Current Node - Store file
 // return private key and nonce to decrypt file if needed + MID to provided to the network
-pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str, listen_addr: &str, peer_bootstap: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
+pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str, listen_addr: &str, peer_bootstrap: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
 
     // create private key and nonce for file encryption/decryption
     let (private_key, nonce) = newkey().await?;
@@ -64,9 +64,6 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
     let hex_mid = bytes_to_hex::<32>(mid_as_key).await;
     print!("\n");
     println!("TEST 🔢 hex_mid: {:?}", hex_mid);
-
-    // provide the file to the network
-    provide_ntwk_file(mid_as_key, listen_addr, peer_bootstap).await?;
     
     return  Ok((private_key, nonce, mid_as_key));
 }
@@ -74,6 +71,24 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
 
 pub async  fn midkey_to_cidhex(mid_as_key: [u8;32])-> Result<String, Box<dyn Error>> {
     // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
+    let mut tree = MonoMetaTree::new()?;
+
+    // get the MID CID pair
+    if let Some(bytes_of_cid) = tree.get(&mid_as_key)?{
+        let cid_as_hex = bytes_to_hex::<32>(bytes_of_cid).await;
+
+        println!("cid test get_cid_file: {}", cid_as_hex);
+        return Ok(cid_as_hex)
+    };
+
+    Ok("Wrong MID or No CID founded".into())
+}
+
+pub async  fn midhex_to_cidhex(mid_as_hex: &str)-> Result<String, Box<dyn Error>> {
+    // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
+
+    let mid_as_key: [u8;32] = hex_to_bytes(mid_as_hex).await?;
+
     let mut tree = MonoMetaTree::new()?;
 
     // get the MID CID pair
@@ -182,14 +197,14 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 //     opt.run().await
 // }
 
-async fn provide_ntwk_file(mid_as_key: [u8;32], listen_addr: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
+pub async fn spread_file_ntwk(mid_as_hex: &str, listen_addr: &str, peer_bootstrap: &str) -> Result<(), Box<dyn Error>> {
 
-    let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
+    let cid_as_hex = midhex_to_cidhex(mid_as_hex).await?;
     
     let opt = RunOption {
         secret_key_seed: None,
         listen_address:Some(listen_addr.parse()?), //Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?), //Some(listen_addr.parse()?),
-        peer: Some(peer_bootstap.parse()?),
+        peer: Some(peer_bootstrap.parse()?),
         argument: Provide {
             path: format!("{}/{}.bin", get_storage_dir(), cid_as_hex).into(),
             name: format!("{}.bin", cid_as_hex)},
@@ -197,7 +212,7 @@ async fn provide_ntwk_file(mid_as_key: [u8;32], listen_addr: &str, peer_bootstap
     opt.run().await
 }
 
-async fn get_ntwk_file(mid_as_hex: &str, peer_bootstap: &str) -> Result<(), Box<dyn Error>> {
+pub async fn call_file_ntwk(mid_as_hex: &str, peer_bootstrap: &str) -> Result<(), Box<dyn Error>> {
     let mid_as_key  = hex_to_bytes::<32>(&mid_as_hex)
         .await?;
 
@@ -206,7 +221,7 @@ async fn get_ntwk_file(mid_as_hex: &str, peer_bootstap: &str) -> Result<(), Box<
     let opt = RunOption {
         secret_key_seed: None,
         listen_address: None,
-        peer: Some(peer_bootstap.parse()?),
+        peer: Some(peer_bootstrap.parse()?),
         argument: Get { name: format!("{}.bin", cid_as_hex) },
     };
     opt.run().await

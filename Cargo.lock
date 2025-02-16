@@ -2418,6 +2418,7 @@ dependencies = [
  "content-hashing",
  "dotenv",
  "file-sharing",
+ "futures",
  "libp2p",
  "metadata-mrkl",
  "rand",

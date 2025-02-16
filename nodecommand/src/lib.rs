@@ -1,9 +1,14 @@
-use std::error::Error;
-
+use std::{
+    pin::Pin,
+    error::Error};
+use futures::{prelude::*, StreamExt};
 use content_hashing::{newkey, encrypt_file, decrypt_file, remove_stored_file, get_storage_dir};
 use metadata_mrkl::{Metadata, MonoMetaTree, hex_to_bytes, bytes_to_hex};
-use file_sharing::{RunOption, ArgProvOrGet::{Get, Provide}, view_network};
-use libp2p::{core::Multiaddr, multiaddr::Protocol, PeerId, futures::StreamExt};
+use file_sharing::{
+        FlexOption, FlexProvOrGet::{Get, Provide}, node_starter,
+        network::{
+            Client, Event, EventLoop}};
+use libp2p::{core::Multiaddr, multiaddr::Protocol, PeerId};
 
 use std::time::Duration;
 
@@ -61,9 +66,7 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
     print!("\n");
     println!("TEST 🔢 nonce: {:?}", hex_nonce);
     print!("\n");
-    let hex_mid = bytes_to_hex::<32>(mid_as_key).await;
-    print!("\n");
-    println!("TEST 🔢 hex_mid: {:?}", hex_mid);
+    println!("TEST //MID//\n mid_as_key: {:?}\nmid_as_hex: {:?}", mid_as_key, mid_as_hex);
     
     return  Ok((private_key, nonce, mid_as_key));
 }
@@ -77,7 +80,7 @@ pub async  fn midkey_to_cidhex(mid_as_key: [u8;32])-> Result<String, Box<dyn Err
     if let Some(bytes_of_cid) = tree.get(&mid_as_key)?{
         let cid_as_hex = bytes_to_hex::<32>(bytes_of_cid).await;
 
-        println!("cid test get_cid_file: {}", cid_as_hex);
+        println!("cid test midkey_to_cidhex: {}", cid_as_hex);
         return Ok(cid_as_hex)
     };
 
@@ -95,7 +98,7 @@ pub async  fn midhex_to_cidhex(mid_as_hex: &str)-> Result<String, Box<dyn Error>
     if let Some(bytes_of_cid) = tree.get(&mid_as_key)?{
         let cid_as_hex = bytes_to_hex::<32>(bytes_of_cid).await;
 
-        println!("cid test get_cid_file: {}", cid_as_hex);
+        println!("cid test midhex_to_cidhex: {}", cid_as_hex);
         return Ok(cid_as_hex)
     };
 
@@ -187,7 +190,7 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 // async fn get_from_network_file(cid: &str, address: Multiaddr, peer_id: libp2p::PeerId) -> Result<(), Box<dyn Error>> {
     
 //     let peer_address = format!("{}",address.with(Protocol::P2p(peer_id))); // /ip4/127.0.0.1/udp/9000/quic-v1/p2p/
-//     let opt = RunOption {
+//     let opt = FlexOption {
 //         secret_key_seed: None,
 //         listen_address: None,
 //         peer: Some(peer_address.parse()?),
@@ -197,31 +200,47 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
 //     opt.run().await
 // }
 
-pub async fn spread_file_ntwk(mid_as_hex: &str, listen_addr: &str, peer_bootstrap: &str) -> Result<(), Box<dyn Error>> {
+pub async fn spread_file_ntwk(
+    mid_as_hex: &str,
+    local_node: Client,
+    event_stream: Pin<Box<dyn futures::Stream<Item = Event> + Send>>,
+    event_loop: EventLoop,
+    listen_addr: &str,
+    peer_bootstrap: &str) -> Result<(), Box<dyn Error>> {
 
     let cid_as_hex = midhex_to_cidhex(mid_as_hex).await?;
+    let vv = format!("{}{}.bin", get_storage_dir(), cid_as_hex);
+    println!("{}", vv);
     
-    let opt = RunOption {
-        secret_key_seed: None,
-        listen_address:Some(listen_addr.parse()?), //Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?), //Some(listen_addr.parse()?),
-        peer: Some(peer_bootstrap.parse()?),
+    let opt = FlexOption {
+        client:local_node,
+        event_stream: event_stream,
+        event_loop: event_loop,
+        listen_address: Some(listen_addr.parse()?), //Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?), //Some(listen_addr.parse()?),
+        peer: None, // Some(peer_bootstrap.parse()?)
         argument: Provide {
-            path: format!("{}/{}.bin", get_storage_dir(), cid_as_hex).into(),
+            path: format!("{}{}.bin", get_storage_dir(), cid_as_hex).into(),
             name: format!("{}.bin", cid_as_hex)},
     };
     opt.run().await
 }
 
-pub async fn call_file_ntwk(mid_as_hex: &str, peer_bootstrap: &str) -> Result<(), Box<dyn Error>> {
+pub async fn call_file_ntwk(
+    mid_as_hex: &str,
+    local_node: Client,
+    event_stream: Pin<Box<dyn futures::Stream<Item = Event> + Send>>,
+    event_loop: EventLoop,peer_bootstrap: &str) -> Result<(), Box<dyn Error>> {
     let mid_as_key  = hex_to_bytes::<32>(&mid_as_hex)
         .await?;
 
     let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
-
-    let opt = RunOption {
-        secret_key_seed: None,
+    println!("Check CID from Call: {}", cid_as_hex);
+    let opt = FlexOption {
+        client:local_node,
+        event_stream: event_stream,
+        event_loop: event_loop,
         listen_address: None,
-        peer: Some(peer_bootstrap.parse()?),
+        peer: None, //Some(peer_bootstrap.parse()?)
         argument: Get { name: format!("{}.bin", cid_as_hex) },
     };
     opt.run().await
@@ -273,8 +292,8 @@ pub async fn call_file_ntwk(mid_as_hex: &str, peer_bootstrap: &str) -> Result<()
 //     let provider_full_addr = base_addr.with(Protocol::P2p(provider_peer_id));
 //     println!("Dialing provider at: {:?}", provider_full_addr);
     
-//     // Now build a RunOption for the GET operation using the discovered address.
-//     let opt = RunOption {
+//     // Now build a FlexOption for the GET operation using the discovered address.
+//     let opt = FlexOption {
 //         secret_key_seed: None,
 //         listen_address: None,
 //         peer: Some(provider_full_addr),

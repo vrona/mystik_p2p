@@ -165,7 +165,6 @@ impl MonoMetaTree {
     pub fn new() -> MonoTResult<Self>{
 
         let storage_midcid = format!("{}", get_storage_midcid());
-        println!("SEE MIDCID {}", storage_midcid);
         
         let newtree = Monotree::<Sled, Blake3>::new(&storage_midcid);
 

@@ -9,7 +9,12 @@
 data/content/*
 data/metadata/*
 data/metadata/midcid/*
-/example
+*/nodeA/#
+/nodeB/#
+/nodeC/#
+/nodeD/#
+
+/example/
 
 .env
 .env.bootstrap1

@@ -1,8 +1,9 @@
 
 pub mod network;
 pub mod blakecheck;
+pub mod runoption;
 use tokio::time::Duration;
-use std::{error::Error, path::PathBuf};
+use std::{pin::Pin, error::Error, path::PathBuf};
 use futures::{prelude::*, StreamExt};
 use libp2p::{core::Multiaddr, multiaddr::Protocol};
 use tracing_subscriber::EnvFilter;
@@ -11,21 +12,34 @@ pub use crate::network::{Client, Event, EventLoop};
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use std::fmt;
 
-#[derive(Debug)]
-pub struct RunOption {
-    /// Secret key seed for deterministic peer ID (or `None` for random).
-    pub secret_key_seed: Option<u8>,
+
+// Create a Node (client, event_stream, network loop)
+pub async fn node_starter(secret_seed_key: Option<u8>) -> Result<(Client, impl Stream<Item = Event>, EventLoop), Box<dyn Error>> {
+    crate::network::new(secret_seed_key)
+        .await
+        .map_err(Into::into)
+}
+
+
+pub struct FlexOption {
+    /// Client of current Node.
+    pub client: Client,
+    /// Event of current Network.
+    pub event_stream: Pin<Box<dyn futures::Stream<Item = Event> + Send>>,
+    /// Eventloop of current Network.
+    pub event_loop: EventLoop,
     /// Address on which to listen (or `None` to listen on 0.0.0.0:0).
     pub listen_address: Option<Multiaddr>,
     /// Peer to dial (optional).
     pub peer: Option<Multiaddr>,
     /// Argument "Provide" or "Get" (optional).
-    pub argument: ArgProvOrGet,
+    pub argument: FlexProvOrGet,
 }
 
 #[derive(Debug)]
-pub enum ArgProvOrGet {
+pub enum FlexProvOrGet {
     /// Provide path to a file with a given name.
     Provide{path: PathBuf, name: String},
 
@@ -33,17 +47,19 @@ pub enum ArgProvOrGet {
     Get{ name: String },
 }
 
-impl RunOption {
-    pub async  fn run(&self) -> Result<(), Box<dyn Error>> {
+impl FlexOption {
+    pub async  fn run(self) -> Result<(), Box<dyn Error>> {
         let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 
-        // Create the network, obtaining a client, an event stream, and a network loop.
-        let (mut network_client, mut network_events, network_event_loop) =
-            network::new(self.secret_key_seed).await?;
+        // Use of providing client, event_stream stream, and network loop.
+        let mut network_client = self.client;
+        let mut network_events = self.event_stream;
+        let network_event_loop = self.event_loop;
 
-        // Wrap the event loop in an Arc<Mutex<...>>
+
+        // Wrap the event_stream loop in an Arc<Mutex<...>>
         let network_event_loop = Arc::new(Mutex::new(network_event_loop));
         
         // Spawn the network in the background.
@@ -85,7 +101,7 @@ impl RunOption {
 
         // Handle either "Provide" or "Get".
         match &self.argument {
-            ArgProvOrGet::Provide { path, name } => {
+            FlexProvOrGet::Provide { path, name } => {
                 // Advertise self as a provider of `name`.
                 match network_client.start_providing(name.clone()).await {
                     Ok(_) => {
@@ -122,18 +138,18 @@ impl RunOption {
                         }
                         // For simplicity, skip unimplemented events. other => todo!("{:?}", other),
                         other => {
-                            tracing::warn!("Unexpected event: {:?}", other);
+                            tracing::warn!("Unexpected event_stream: {:?}", other);
                         }
                     }
                 }
             }
-            ArgProvOrGet::Get { name } => {
+            FlexProvOrGet::Get { name } => {
                 
                 let peer_addr = if let Some(addr) = &self.peer {
                     addr.clone()
                 } else {
                     // Optionally wait a short time for DHT propagation.
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    tokio::time::sleep(Duration::from_secs(3)).await;
 
                     // Find providers for the file name on the DHT.
                     let providers = network_client.get_providers(name.clone()).await?;
@@ -146,10 +162,10 @@ impl RunOption {
                     let provider_peer_id = *providers.iter().next().unwrap();
                     println!("Automatically found provider PeerId: {:?}", provider_peer_id);
 
-                    // Use the shared event loop to retrieve known addresses.
+                    // Use the shared event_stream loop to retrieve known addresses.
                     let remote_addr: Multiaddr = {
                         let known_addrs: Vec<Multiaddr> = {
-                            // Lock the event loop to get the addresses.
+                            // Lock the event_stream loop to get the addresses.
                             let mut event_loop_lock = network_event_loop.lock().await;
                             event_loop_lock.get_peer_addresses(&provider_peer_id)
                         };
@@ -172,7 +188,7 @@ impl RunOption {
                     network_client.dial(peer_id, peer_addr.clone()).await?;
 
                     // Optionally wait a short time for the DHT to propagate provider records.
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    tokio::time::sleep(Duration::from_secs(3)).await;
 
                     // Once connected, proceed to request the file.
                     let requests = network_client
@@ -199,10 +215,3 @@ impl RunOption {
         }
         Ok(())}
     }
-
-pub async fn view_network(secret_seed_key: Option<u8>) -> Result<(Client, impl Stream<Item = Event>, EventLoop), Box<dyn Error>> {
-    crate::network::new(secret_seed_key)
-        .await
-        .map_err(Into::into)
-
-}

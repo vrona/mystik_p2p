@@ -12,7 +12,7 @@ use libp2p::futures::future::pending;
 use tracing_subscriber::EnvFilter;
 
 // Import your network module's public interface.
-use file_sharing::view_network;
+use file_sharing::node_starter;
 use file_sharing::{Client, Event, EventLoop};
 
 // Import your node command functions. Adjust the path as needed.
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // 1. Initialize the network.
     // Here we use `None` for the secret_key_seed (i.e. generate a random identity).
-    let (mut client, mut _event_stream, network_event_loop) = view_network(config.secret_seed).await?;
+    let (mut client, mut _event_stream, network_event_loop) = node_starter(config.secret_seed).await?;
     let local_peer_id = network_event_loop.local_peer_id();
     println!("Local PeerId: {}", local_peer_id);
 
@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "Enter command: (
         store <file_name> <file_type> <secret> <file_path>
         | spread <mid (metadata id)>
-        | call <mid (metadata id)>
+        | call <mid (metadata id)> <peer>
         | get <file_name> <file_type> <secret> <private_key> <nonce>
         | exit)");
     
@@ -164,7 +164,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                     Err(e) => eprintln!("Error storing file: {}", e),
                 }
-
             }
             "spread" => {
                 if parts.len() == 2 {
@@ -172,7 +171,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let listen_addr = "/ip4/0.0.0.0/udp/0/quic-v1";
                     let peer_bootstrap = "/ip4/127.0.0.1/udp/9001/quic-v1/p2p/12D3KooWMzg8FK5YW9SSov78gYudoeJxsWy4GbjMg7fA6JKv2X8T";//env::var("BOOTSTRAP_ADDR_2")?;
                     
-                    match nodecommand::spread_file_ntwk(mid_as_hex, listen_addr, peer_bootstrap).await {
+                    match nodecommand::spread_file_ntwk(
+                        mid_as_hex, client, listen_addr, peer_bootstrap).await {
                         Ok(()) => print!("File transmitted successfully!"),
                         Err(e) => eprintln!("Error transmitting file: {}", e),
                         
@@ -180,14 +180,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             "call" => {
-                if parts.len() == 2 {
+                if parts.len() == 3 {
                     let mid_as_hex = parts[1];
-                    let peer_bootstrap = "/ip4/127.0.0.1/udp/9001/quic-v1/p2p/12D3KooWMzg8FK5YW9SSov78gYudoeJxsWy4GbjMg7fA6JKv2X8T";//env::var("BOOTSTRAP_ADDR_2")?;
+                    let peer_bootstrap = parts[2];//"/ip4/127.0.0.1/udp/9001/quic-v1/p2p/12D3KooWMzg8FK5YW9SSov78gYudoeJxsWy4GbjMg7fA6JKv2X8T";//env::var("BOOTSTRAP_ADDR_2")?;
                     
                     match nodecommand::call_file_ntwk(mid_as_hex, peer_bootstrap).await {
                         Ok(()) => print!("File transmitted successfully!"),
-                        Err(e) => eprintln!("Error transmitting file: {}", e),
-                        
+                        Err(e) => eprintln!("Error transmitting file: {}", e),  
                     }
                 }
             }
@@ -226,9 +225,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             "exit" => break,
-            _ => println!("Unknown command. Usage: store <file_name> <file_type> <secret> <file_path> | get <file_name> <file_type> <secret> <private_key> <nonce> | exit"),
+            _ => println!("Unknown command. Usage: store <file_name> <file_type> <secret> <file_path>
+                        | spread <mid (metadata id)>
+                        | call <mid (metadata id)> <peer>
+                        | get <file_name> <file_type> <secret> <private_key> <nonce>
+                        | exit"),
         }
-        println!("Enter command: (store <file_name> <file_type> <secret> <file_path> | get <file_name> <file_type> <secret> <private_key> <nonce> | exit)");
+        println!("Enter command: (store <file_name> <file_type> <secret> <file_path>
+                    | spread <mid (metadata id)>
+                    | call <mid (metadata id)> <peer>
+                    | get <file_name> <file_type> <secret> <private_key> <nonce>
+                    | exit)");
     }
 
     // Keep the node running.

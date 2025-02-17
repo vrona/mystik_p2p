@@ -40,7 +40,8 @@ impl RunOption {
         .try_init();
 
         // Create the network, obtaining a client, an event stream, and a network loop.
-        let (mut network_client, mut network_events, network_event_loop) =
+        let (
+            mut network_client, mut network_events, network_event_loop) =
             network::new(self.secret_key_seed).await?;
 
         // Wrap the event loop in an Arc<Mutex<...>>

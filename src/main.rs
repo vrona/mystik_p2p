@@ -1,19 +1,11 @@
 // launch_node.rs
 mod node_config; // Import the configuration module
 use std::error::Error;
-use dotenv::dotenv;
-use std::{pin::Pin, env};
-use std::io::{self, Write, BufRead};
-use std::sync::Arc;
+use std::io::{self, BufRead};
 use tokio::time::{sleep, Duration};
-use tokio::sync::Mutex;
-use libp2p::{Multiaddr, multiaddr::Protocol, PeerId};
+use libp2p::Multiaddr;
 use libp2p::futures::future::pending;
-use tracing_subscriber::EnvFilter;
-use futures::StreamExt;
-use tokio::sync::broadcast;
-use tokio_stream::wrappers::BroadcastStream;
-
+use tracing_subscriber::EnvFilter; 
 // Import your network module's public interface.
 use file_sharing::NodeManager;
 
@@ -33,10 +25,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = node_config::load_node_config()?;
 
     // Start listening on a default address.
-    let listen_address: Option<Multiaddr> = config.listen_addr;
+    let listen_address: Option<Multiaddr> = config.listen_addr; //Some("/ip4/127.0.0.1/udp/9004/quic-v1".parse()?); //config.listen_addr;
 
     // Peer
-    let peer: Option<Multiaddr> = None;
+    let peer: Option<Multiaddr> = None;//Some("/ip4/127.0.0.1/udp/60720/quic-v1/p2p/12D3KooWBDLQJdH4DheSwSJB7zatQEkurrFdF8MSRrMaU76jsRRq".parse()?);
 
     // Create launch Node
     let mut node_manager = NodeManager::new(config.secret_seed, listen_address, peer).await?;
@@ -44,20 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     sleep(Duration::from_secs(5)).await;
     println!("Node launched and connected to the network.");
 
-    
-    // Optionally, perform dynamic bootstrapping.
-    // {
-    //     let shared_event_loop_clone = shared_event_loop.clone();
-    //     tokio::spawn(async move {
-    //         let mut event_loop_lock = shared_event_loop_clone.lock().await;
-    //         match event_loop_lock.bootstrap() {
-    //             Ok(query_id) => println!("Bootstrap initiated: {:?}", query_id),
-    //             Err(e) => println!("Bootstrap failed: {:?}", e),
-    //         }
-    //     });
-    // }
-
-    // 3. Command-line interface.
+    // Command-line interface.
     println!(
         "Enter command: (store <file_name> <file_type> <secret> <file_path>\
          | spread <mid (metadata id)>\
@@ -97,10 +76,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "spread" => {
                 if parts.len() == 2 {
                     let mid_as_hex = parts[1];
-                    // let listen_addr = "/ip4/0.0.0.0/udp/0/quic-v1";
-                    // let peer_bootstrap = "/ip4/127.0.0.1/udp/9001/quic-v1/p2p/12D3KooWMzg8FK5YW9SSov78gYudoeJxsWy4GbjMg7fA6JKv2X8T";
                     let path = nodecommand::local_path_to_cid(mid_as_hex).await?;
-                    match node_manager.provide_file(path, mid_as_hex.to_string()).await
+                    let cid_as_hex = nodecommand::midhex_to_cidhex(mid_as_hex).await?;
+                    match node_manager.spread_ntwk(cid_as_hex.to_string()).await
+                    {
+                         Ok(()) => println!("File spreaded on DHT successfully!"),
+                        Err(e) => eprintln!("Error spreaded on DHT: {}", e),
+                    }
+                    match node_manager.provide_file(path, cid_as_hex.to_string()).await
                     {
                         Ok(()) => println!("File transmitted successfully!"),
                         Err(e) => eprintln!("Error transmitting file: {}", e),
@@ -108,10 +91,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             "call" => {
-                if parts.len() == 3 {
-                    let mid_as_hex = parts[1];
-                    let cid_to_hex = nodecommand::midhex_to_cidhex(mid_as_hex).await?;
-                    match node_manager.get_file(cid_to_hex).await
+                if parts.len() == 2 {
+                    let cid_as_hex = parts[1];
+                    //let cid_to_hex = nodecommand::midhex_to_cidhex(mid_as_hex).await?;
+                    match node_manager.get_file(cid_as_hex.to_string()).await
                     {
                         Ok(()) => println!("File transmitted successfully!"),
                         Err(e) => eprintln!("Error transmitting file: {}", e),

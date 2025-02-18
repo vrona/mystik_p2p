@@ -215,6 +215,7 @@ impl EventLoop {
         tokio::spawn(async move { self.run().await })
     }
 
+
     pub async fn run(&mut self) {
         // We also spawn an inbound streams handler for the file-exchange protocol.
         // This is optional. You could do it in `handle_event` as well, but spawning
@@ -258,12 +259,6 @@ impl EventLoop {
 
     pub fn local_peer_id(&self) -> PeerId {
         self.swarm.local_peer_id().clone()
-    }
-
-    // Returns a reference to the underlying swarm for debugging.
-    pub fn bootstrap(&mut self) -> Result<kad::QueryId, kad::NoKnownPeers> {
-        self.swarm.behaviour_mut().kademlia.bootstrap()
-    
     }
 
     /// Returns the known multiaddresses for the given `peer_id` by iterating over the routing table.
@@ -489,6 +484,7 @@ impl EventLoop {
                             Err(anyhow!("Failed to open stream to peer {}: {}", peer, e))
                         }
                     };
+
                 let _ = sender.send(res);
             }
         }

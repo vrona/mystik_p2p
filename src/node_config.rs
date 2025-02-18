@@ -33,8 +33,9 @@ pub fn load_node_config() -> Result<NodeConfig, Box<dyn Error>> {
             println!("Loaded environment file: .env.bootstrap2");
         }
         "" => {
+            dotenv::from_filename(".env").ok();
             println!("Running as a regular node (no bootstrap env loaded).");
-            dotenv().ok(); // Load a default .env file if needed
+            //dotenv().ok(); // Load a default .env file if needed
         }
         _ => {
             eprintln!("Invalid choice. Enter 1, 2, or press Enter for a regular node.");

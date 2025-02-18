@@ -208,5 +208,6 @@ impl FlexOption {
                     .0;
             }
         }
-        Ok(())}
+        Ok(())
+    }
     }

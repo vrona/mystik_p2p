@@ -6,7 +6,7 @@ edition = "2021"
 [workspace]
 members = [ 
     "content-hashing",
-    "file-sharing",
+    "file-sharing", "graphdisco",
     "metadata-mrkl",
     "nodecommand",
     "phantomg",

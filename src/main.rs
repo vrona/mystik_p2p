@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let listen_address: Option<Multiaddr> = config.listen_addr; //Some("/ip4/127.0.0.1/udp/9004/quic-v1".parse()?); //config.listen_addr;
 
     // Peer
-    let peer: Option<Multiaddr> = None;//Some("/ip4/127.0.0.1/udp/60720/quic-v1/p2p/12D3KooWBDLQJdH4DheSwSJB7zatQEkurrFdF8MSRrMaU76jsRRq".parse()?);
+    let peer: Option<Multiaddr> = Some("/ip4/127.0.0.1/udp/56571/quic-v1/p2p/12D3KooWMCGxDp7qsmQ6498PJU3n3SfssgY9XYFqG8ohC7Ck9qb9".parse()?);
 
     // Create launch Node
     let mut node_manager = NodeManager::new(config.secret_seed, listen_address, peer).await?;

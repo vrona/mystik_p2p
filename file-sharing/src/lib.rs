@@ -1,32 +1,29 @@
 use std::env;
-pub mod network;
+pub mod composite;
 pub mod blakecheck;
-use futures::future::join_all;
-use tokio::time::{Duration, sleep, timeout};
+use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf};
 use futures::{prelude::*, StreamExt};
-use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, kad};
+use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
-pub use crate::network::{Client, Event, EventLoop};
+pub use crate::composite::{Client, Event, EventLoop};
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-// Create a Node (client, event_stream, network loop)
-pub async fn node_starter(secret_seed_key: Option<u8>) -> Result<(Client, impl Stream<Item = Event>, EventLoop), Box<dyn Error>> {
-    crate::network::new(secret_seed_key)
-        .await
-        .map_err(Into::into)
-}
-
+/// NodeManager provides higher-level functionality:
+/// - It wraps the client, event loop and event stream.
+/// - It listens on a specified multiaddr (or defaults to /ip4/0.0.0.0/udp/0/quic-v1).
+/// - It optionally dials a peer (for bootstrapping or direct connection).
+/// - It implements methods for spreading, providing, and retrieving files.
 pub struct NodeManager {
     pub client: Client,
     pub event_stream: Pin<Box<dyn Stream<Item = Event> + Send>>,
     pub event_loop: Arc<Mutex<EventLoop>>,
     /// Address on which to listen (or `None` to listen on 0.0.0.0:0).
     pub listen_address: Option<Multiaddr>,
-    /// Peer to dial (optional).
+    /// Peer to dial (optional) => bootstrapping or relaying
     pub peer: Option<Multiaddr>,
 }
 
@@ -39,17 +36,14 @@ impl NodeManager{
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
-        let (mut client, event_stream, network_event_loop) = network::new(secret_seed).await?;
-        let event_loop = Arc::new(Mutex::new(network_event_loop));
+        let (mut client, event_stream, composite_event_loop) = composite::new(secret_seed).await?;
+        let event_loop = Arc::new(Mutex::new(composite_event_loop));
 
-         // Spawn the network in the background.
+         // Spawn the composite in the background.
         {
             let event_loop_clone = event_loop.clone();
                 let local_peer_id = event_loop_clone.lock().await.local_peer_id();
                 println!("Local PeerId: {}", local_peer_id);
-
-                // Explicit dial_bootstrap_if_needed.
-                //let _ = Self::robust_bootstrap(&mut client, local_peer_id.clone(), event_loop.clone()).await?;
 
                 tokio::spawn(async move {
                 event_loop_clone.lock().await.run().await;
@@ -91,94 +85,7 @@ impl NodeManager{
             listen_address,
             peer,
         })
-    }
-
-    // /// If that fails due to no known peers, dial known bootstrap addresses.
-    // pub async fn robust_bootstrap(
-    //     client: &mut Client,
-    //     local_peer_id: PeerId,
-    //     event_loop: Arc<Mutex<EventLoop>>, // might be used for further logic if needed
-    // ) -> Result<(), Box<dyn Error>> {
-    //     // Try built-in bootstrap first.
-    //     match event_loop.lock().await.bootstrap() {
-    //         Ok(query_id) => {
-    //             println!("Bootstrap initiated with query_id: {:?}", query_id);
-    //             return Ok(());
-    //         }
-    //         Err(kad::NoKnownPeers()) => {
-    //             println!("Built-in bootstrap failed: No known peers. Proceeding to dial bootstrap addresses...");
-    //         }
-    //         Err(e) => return Err(e.into()),
-    //     }
-
-    //     // Collect bootstrap addresses from environment variables.
-    //     let bootstrap_addrs: Vec<Multiaddr> = ["BOOTSTRAP_ADDR_1", "BOOTSTRAP_ADDR_2"]
-    //         .iter()
-    //         .filter_map(|var| env::var(var).ok())
-    //         .filter_map(|addr_str| addr_str.parse().ok())
-    //         .collect();
-
-    //     println!("BOOTSTRAPS ADDR: {:?}", bootstrap_addrs);
-    //     // Prepare dial tasks for bootstrap addresses.
-    //     let dial_tasks: Vec<_> = bootstrap_addrs.into_iter().filter_map(|addr| {
-    //         if let Some(Protocol::P2p(bootstrap_peer_id)) = addr.iter().last() {
-    //             // Skip if it's our own ID.
-    //             if bootstrap_peer_id == local_peer_id {
-    //                 println!("Skipping bootstrap connection to self.");
-    //                 return None;
-    //             }
-    //             println!("Preparing to dial bootstrap peer: {}", addr);
-    //             let mut client_clone = client.clone();
-    //             Some(async move {
-    //                 let mut attempt = 0;
-    //                 let max_attempts = 5;
-    //                 let mut backoff = Duration::from_secs(1);
-    //                 loop {
-    //                     attempt += 1;
-    //                     match timeout(Duration::from_secs(10), client_clone.dial(bootstrap_peer_id, addr.clone())).await {
-    //                         Ok(Ok(())) => {
-    //                             println!("Successfully connected to bootstrap peer {} on attempt {}", addr, attempt);
-    //                             return Ok(());
-    //                         }
-    //                         Ok(Err(e)) => {
-    //                             println!("Dial attempt {} to {} failed: {}", attempt, addr, e);
-    //                         }
-    //                         Err(_) => {
-    //                             println!("Dial attempt {} to {} timed out", attempt, addr);
-    //                         }
-    //                     }
-    //                     if attempt >= max_attempts {
-    //                             println!("Giving up on bootstrap peer {} after {} attempts", addr, attempt);
-    //                             return Err("Max dial attempts reached");
-    //                     }
-    //                     sleep(backoff).await;
-    //                     backoff *= 2;
-    //                 }
-    //             })
-    //         } else {
-    //             println!("Skipping address without a /p2p/ component: {}", addr);
-    //             None
-    //         }
-    //     }).collect();
-
-    //     // If there are no external bootstrap addresses, that's acceptable for a bootstrap node.
-    //     if dial_tasks.is_empty() {
-    //         println!("No external bootstrap addresses to dial; running as sole bootstrap node.");
-    //         return Ok(());
-    //     }
-
-    //     // Run all dial tasks concurrently.
-    //     let results = join_all(dial_tasks).await;
-    //     if results.iter().any(|res| res.is_ok()) {
-    //         Ok(())
-    //     } else {
-    //         Err("Failed to dial any bootstrap peers.".into())
-    //     }
-    // }
-
-
-    /// Dial bootstrap peers concurrently with retry logic.
-    
+    }    
 
     pub async  fn spread_ntwk(&mut self, name: String) -> Result<(), Box<dyn Error>> {
          // Advertise self as a provider of `name`.
@@ -199,7 +106,7 @@ impl NodeManager{
         loop {
             tracing::debug!("Waiting for inbound file requests...");
             match self.event_stream.next().await {
-                Some(network::Event::InboundFileRequest { peer, file_name, stream }) => {
+                Some(composite::Event::InboundFileRequest { peer, file_name, stream }) => {
                     // 1. check if the requested file name matches our `name`.
                     tracing::debug!("Lib.rs checks: {} {}", file_name, name);
                     if file_name == *name {

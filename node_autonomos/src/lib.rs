@@ -1,22 +1,18 @@
-use std::env;
-pub mod composite;
-pub mod blakecheck;
+
+mod node_regular;
+
+mod blakecheck;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf};
 use futures::{prelude::*, StreamExt};
 use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, rendezvous};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
-pub use crate::composite::{Client, Event, EventLoop};
 
+use node_regular::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// NodeManager provides higher-level functionality:
-/// - It wraps the client, event loop and event stream.
-/// - It listens on a specified multiaddr (or defaults to /ip4/0.0.0.0/udp/0/quic-v1).
-/// - It optionally dials a peer (for bootstrapping or direct connection).
-/// - It implements methods for spreading, providing, and retrieving files.
 pub struct NodeManager {
     pub client: Client,
     pub event_stream: Pin<Box<dyn Stream<Item = Event> + Send>>,
@@ -25,7 +21,9 @@ pub struct NodeManager {
     pub listen_address: Option<Multiaddr>,
     /// Peer to dial (optional) => bootstrapping or relaying
     pub peer: Option<Multiaddr>,
+
 }
+
 
 impl NodeManager{
 
@@ -36,8 +34,10 @@ impl NodeManager{
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
-        let (mut client, event_stream, composite_event_loop) = composite::new(secret_seed).await?;
+        let (mut client, event_stream, composite_event_loop) = node_regular::new(secret_seed).await?;
+        
         let event_loop = Arc::new(Mutex::new(composite_event_loop));
+
 
          // Spawn the composite in the background.
         {
@@ -106,7 +106,7 @@ impl NodeManager{
         loop {
             tracing::debug!("Waiting for inbound file requests...");
             match self.event_stream.next().await {
-                Some(composite::Event::InboundFileRequest { peer, file_name, stream }) => {
+                Some(node_regular::Event::InboundFileRequest { peer, file_name, stream }) => {
                     // 1. check if the requested file name matches our `name`.
                     tracing::debug!("Lib.rs checks: {} {}", file_name, name);
                     if file_name == *name {

@@ -1038,23 +1038,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
-name = "file-sharing"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "clap",
- "futures",
- "libp2p",
- "libp2p-stream",
- "rand",
- "serde",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1704,10 +1687,10 @@ dependencies = [
  "clap",
  "content-hashing",
  "dotenv",
- "file-sharing",
  "futures",
  "libp2p",
  "metadata-mrkl",
+ "node_autonomos",
  "nodecommand",
  "rand",
  "tokio",
@@ -2591,6 +2574,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "node_autonomos"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "clap",
+ "futures",
+ "libp2p",
+ "libp2p-stream",
+ "rand",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "node_syndesmos"
+version = "0.1.0"
+
+[[package]]
 name = "nodecommand"
 version = "0.1.0"
 dependencies = [
@@ -2598,10 +2602,10 @@ dependencies = [
  "async-std",
  "content-hashing",
  "dotenv",
- "file-sharing",
  "futures",
  "libp2p",
  "metadata-mrkl",
+ "node_autonomos",
  "rand",
  "tokio",
  "tracing",
@@ -2847,8 +2851,8 @@ version = "0.1.0"
 dependencies = [
  "content-hashing",
  "dotenv",
- "file-sharing",
  "metadata-mrkl",
+ "node_autonomos",
  "nodecommand",
  "rand",
  "tokio",
@@ -2860,8 +2864,8 @@ version = "0.1.0"
 dependencies = [
  "content-hashing",
  "dotenv",
- "file-sharing",
  "metadata-mrkl",
+ "node_autonomos",
  "nodecommand",
  "rand",
  "tokio",

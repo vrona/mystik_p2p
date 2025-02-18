@@ -6,8 +6,8 @@ edition = "2021"
 [workspace]
 members = [ 
     "content-hashing",
-    "file-sharing", "graphdisco",
-    "metadata-mrkl",
+    "node_autonomos", "graphdisco",
+    "metadata-mrkl", "node_syndesmos",
     "nodecommand",
     "phantomg",
     "phantoms",
@@ -28,7 +28,7 @@ tokio-stream = {version = "0.1.17", features = ["sync"]}
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 content-hashing = { path = "./content-hashing" }
-file-sharing    = { path = "./file-sharing" }
+node_autonomos   = { path = "./node_autonomos" }
 metadata-mrkl   = { path = "./metadata-mrkl" }
 nodecommand = { path = "./nodecommand" }
 

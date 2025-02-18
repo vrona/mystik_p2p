@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 dotenv = "0.15.0"
 content-hashing = {path = "../content-hashing" }
-file-sharing = {path = "../file-sharing" }
+node_autonomos = {path = "../node_autonomos" }
 metadata-mrkl   = { path = "../metadata-mrkl" }
 nodecommand   = { path = "../nodecommand" }
 rand = "0.8.5"

@@ -17,12 +17,16 @@ use futures::{
 };
 
 use libp2p::{
-    futures::{AsyncWriteExt, AsyncReadExt},
+    identify,
     identity,
     kad,
+    futures::{AsyncWriteExt, AsyncReadExt},
     Multiaddr,
     multiaddr::Protocol,
     PeerId,
+    ping,
+    relay,
+    rendezvous,
     StreamProtocol,
     Stream,
     swarm::{NetworkBehaviour, Swarm, SwarmEvent},
@@ -36,59 +40,174 @@ use tokio::task::JoinHandle;
 /// A custom protocol tag for our file-exchange streams.
 const FILE_PROTOCOL: StreamProtocol = StreamProtocol::new("/file-exchange/1");
 
+// pub const STORAGE_DIR: &str = "./data/content/";
+pub fn get_storage_dir() -> String {
+    std::env::var("STORAGE_DIR").unwrap_or_else(|_| "./data/content/".to_string())
+}
+
+/// We define a “flattened” event type so that we can handle both in one `SwarmEvent`.
+/// [`NetworkBehaviour`] Composite network behaviour that combines relay, ping, identify, Kademlia (DHT), Streams.
+/// and a stream-based file exchange protocol.
+#[derive(NetworkBehaviour)]
+#[behaviour(out_event = "CompositeEvent")]
+pub struct CompositeBehaviour {
+    pub relay: relay::Behaviour,
+    pub ping: ping::Behaviour,
+    pub identify: identify::Behaviour,
+    pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
+    pub rendezvous: rendezvous::server::Behaviour,
+    pub stream: stream::Behaviour,
+}
+
+/// Unified event type combining all protocols.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
+pub enum CompositeEvent {
+    Relay(relay::Event),
+    Ping(ping::Event),
+    Identify(identify::Event),
+    Kademlia(kad::Event),
+    Rendezvous(rendezvous::server::Event),
+    // Note: The stream behaviour does not emit events by default.
+    Stream(()),
+}
+
+impl From<relay::Event> for CompositeEvent {
+    fn from(event: relay::Event) -> Self {
+        CompositeEvent::Relay(event)
+    }
+}
+
+impl From<ping::Event> for CompositeEvent {
+    fn from(event: ping::Event) -> Self {
+        CompositeEvent::Ping(event)
+    }
+}
+
+impl From<identify::Event> for CompositeEvent {
+    fn from(event: identify::Event) -> Self {
+        CompositeEvent::Identify(event)
+    }
+}
+
+impl From<kad::Event> for CompositeEvent {
+    fn from(event: kad::Event) -> Self {
+        CompositeEvent::Kademlia(event)
+    }
+}
+
+impl From<rendezvous::server::Event> for CompositeEvent {
+    fn from(event: rendezvous::server::Event) -> Self {
+        CompositeEvent::Rendezvous(event)
+    }
+}
+
+impl From<()> for CompositeEvent {
+    fn from(_: ()) -> Self {
+        CompositeEvent::Stream(())
+    }
+}
+
+/// Commands sent from `Client` to the `EventLoop`.
+#[derive(Debug)]
+enum Command {
+    StartListening {
+        addr: Multiaddr,
+        sender: oneshot::Sender<Result<(), AnyhowError>>,
+    },
+    Dial {
+        peer_id: PeerId,
+        peer_addr: Multiaddr,
+        sender: oneshot::Sender<Result<(), AnyhowError>>,
+    },
+    StartProviding {
+        file_name: String,
+        sender: oneshot::Sender<Result<(), AnyhowError>>,
+    },
+    GetProviders {
+        file_name: String,
+        sender: oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>,
+    },
+    // -----------------------
+    // Stream-based file request:
+    RequestFile {
+        peer: PeerId,
+        file_name: String,
+        sender: oneshot::Sender<Result<Vec<u8>, AnyhowError>>,
+    },
+    // If you want a "RespondFile" command that *pushes* data, you can do something similar.
+    // In that scenario, you'd open a substream as well from your side. Alternatively, you
+    // could wait for the remote to open a stream, read its file name, and respond with data.
+}
+
+/// Events emitted by the `EventLoop` to user-land.
+#[derive(Debug)]
+pub enum Event {
+    /// A peer opened a stream requesting a file. The raw `data` might be the filename
+    /// or something else depending on how you implement your protocol.
+    InboundFileRequest {
+        peer: PeerId,
+        file_name: String,
+        stream: Stream,
+    },
+    // Add more events as needed, e.g. inbound/outbound errors, progress, etc.
+}
+
 /// Creates the network components, namely:
 ///
 /// 1. The [`Client`] to interact with the network from anywhere in your app.
 /// 2. The [`Event`] stream, e.g. for inbound connections.
 /// 3. The [`EventLoop`] task driving the network itself.
 
-pub(crate) async fn new(
-    secret_key_seed: Option<u8>,
-) -> Result<(Client, impl FuturesStream<Item = Event>, EventLoop), AnyhowError> {
-    // Create a public/private key pair, either random or based on a seed.
+pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStream<Item = Event>, EventLoop), AnyhowError> {
+    // Create key pair from seed (or generate one).
     let id_keys = match secret_key_seed {
         Some(seed) => {
             let mut bytes = [0u8; 32];
             bytes[0] = seed;
             identity::Keypair::ed25519_from_bytes(bytes).unwrap()
-        }
+        },
         None => identity::Keypair::generate_ed25519(),
     };
     let peer_id = id_keys.public().to_peer_id();
 
-    // Build a Swarm that uses QUIC (or TCP+Noise+Yamux).
-    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
+    // Build a Swarm that uses QUIC and our composite behaviour.
+    let swarm = libp2p::SwarmBuilder::with_existing_identity(id_keys)
         .with_tokio()
         .with_quic()
-        .with_behaviour(|key| Behaviour {
-            kademlia: kad::Behaviour::new(
-                peer_id,
-                kad::store::MemoryStore::new(key.public().to_peer_id()), // RecordStore for Persistent Storage.
-            ),
-            stream: stream::Behaviour::new(),
+        .with_behaviour(|key| {
+            let relay_behaviour = relay::Behaviour::new(key.public().to_peer_id(), Default::default());
+            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(10)));
+            let identify_behaviour = identify::Behaviour::new(identify::Config::new("/composite/0.1.0".to_string(), key.public()));
+            let store = kad::store::MemoryStore::new(key.public().to_peer_id());
+            let mut kademlia_behaviour = kad::Behaviour::new(peer_id, store);
+            kademlia_behaviour.set_mode(Some(kad::Mode::Server));
+            let rendezvous_behaviour = rendezvous::server::Behaviour::new(rendezvous::server::Config::default());
+            let stream_behaviour = stream::Behaviour::new();
+            CompositeBehaviour {
+                relay: relay_behaviour,
+                ping: ping_behaviour,
+                identify: identify_behaviour,
+                kademlia: kademlia_behaviour,
+                stream: stream_behaviour,
+                rendezvous: rendezvous_behaviour,
+            }
         })?
-        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+        .with_swarm_config(|config| config.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
 
-    // For Kademlia we act in server mode.
-    swarm
-        .behaviour_mut()
-        .kademlia
-        .set_mode(Some(kad::Mode::Server));
-
+    // Set up channels for server commands and event notifications.
     let (command_sender, command_receiver) = mpsc::channel(32);
     let (event_sender, event_receiver) = mpsc::channel(32);
 
     Ok((
-        Client {
-            sender: command_sender,
-        },
+        Client { sender: command_sender },
         event_receiver,
         EventLoop::new(swarm, command_receiver, event_sender),
     ))
 }
 
-/// The client to control the network layer from your application.
+/// The server to control the network layer from your application.
 #[derive(Clone)]
 pub struct Client {
     sender: mpsc::Sender<Command>,
@@ -185,7 +304,7 @@ impl Client {
 
 /// Main event loop that drives the Swarm and handles commands from the `Client`.
 pub struct EventLoop {
-    swarm: Swarm<Behaviour>,
+    swarm: Swarm<CompositeBehaviour>,
     command_receiver: mpsc::Receiver<Command>,
     event_sender: mpsc::Sender<Event>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), AnyhowError>>>,
@@ -195,7 +314,7 @@ pub struct EventLoop {
 
 impl EventLoop {
     fn new(
-        swarm: Swarm<Behaviour>,
+        swarm: Swarm<CompositeBehaviour>,
         command_receiver: mpsc::Receiver<Command>,
         event_sender: mpsc::Sender<Event>,
     ) -> Self {
@@ -215,6 +334,9 @@ impl EventLoop {
         tokio::spawn(async move { self.run().await })
     }
 
+    pub fn swarm_mut(&mut self) -> &mut libp2p::Swarm<CompositeBehaviour> {
+        &mut self.swarm
+    }
 
     pub async fn run(&mut self) {
         // We also spawn an inbound streams handler for the file-exchange protocol.
@@ -317,9 +439,9 @@ impl EventLoop {
         }
     }
 
-    async fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+    async fn handle_swarm_event(&mut self, event: SwarmEvent<CompositeEvent>) {
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
+            SwarmEvent::Behaviour(CompositeEvent::Kademlia(
                 kad::Event::OutboundQueryProgressed {
                     id,
                     result: kad::QueryResult::StartProviding(_),
@@ -332,7 +454,7 @@ impl EventLoop {
                     print!("Providing request completed.");
                 }
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
+            SwarmEvent::Behaviour(CompositeEvent::Kademlia(
                 kad::Event::OutboundQueryProgressed {
                     id,
                     result:
@@ -453,7 +575,7 @@ impl EventLoop {
 
                                     tracing::debug!("Write side of the stream successfully closed.");
 
-                                    let raw_final_path = format!("data/{}", file_name);
+                                    let raw_final_path = format!("{}{}", get_storage_dir(), file_name);
                                     let final_path = std::path::Path::new(&raw_final_path);
                                     tracing::debug!("Calling receive_file_with_hash for file: {:?}", final_path);
 
@@ -489,81 +611,4 @@ impl EventLoop {
             }
         }
     }
-}
-
-/// Our libp2p [`NetworkBehaviour`] combining Kademlia + Streams.
-/// We define a “flattened” event type so that we can handle both in one `SwarmEvent`.
-#[derive(NetworkBehaviour)]
-#[behaviour(out_event = "BehaviourEvent")]
-struct Behaviour {
-    pub kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    pub stream: stream::Behaviour,
-}
-
-/// We unify the two events (`kad` + `stream`) into one for the `SwarmEvent`.
-#[allow(clippy::large_enum_variant)]
-enum BehaviourEvent {
-    Kademlia(kad::Event),
-    // Note that `libp2p_stream::Behaviour` does **not** emit events by default
-    // unless you enable them. For now, we do not handle them here. We accept
-    // substreams ourselves.
-    StreamNoop,
-}
-
-// Convert `kad::Event` into `BehaviourEvent` for the `SwarmEvent`.
-impl From<kad::Event> for BehaviourEvent {
-    fn from(event: kad::Event) -> Self {
-        BehaviourEvent::Kademlia(event)
-    }
-}
-
-impl From<()> for BehaviourEvent {
-    fn from(_value: ()) -> Self {
-        BehaviourEvent::StreamNoop
-    }    
-}
-
-/// Commands sent from `Client` to the `EventLoop`.
-#[derive(Debug)]
-enum Command {
-    StartListening {
-        addr: Multiaddr,
-        sender: oneshot::Sender<Result<(), AnyhowError>>,
-    },
-    Dial {
-        peer_id: PeerId,
-        peer_addr: Multiaddr,
-        sender: oneshot::Sender<Result<(), AnyhowError>>,
-    },
-    StartProviding {
-        file_name: String,
-        sender: oneshot::Sender<Result<(), AnyhowError>>,
-    },
-    GetProviders {
-        file_name: String,
-        sender: oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>,
-    },
-    // -----------------------
-    // Stream-based file request:
-    RequestFile {
-        peer: PeerId,
-        file_name: String,
-        sender: oneshot::Sender<Result<Vec<u8>, AnyhowError>>,
-    },
-    // If you want a "RespondFile" command that *pushes* data, you can do something similar.
-    // In that scenario, you'd open a substream as well from your side. Alternatively, you
-    // could wait for the remote to open a stream, read its file name, and respond with data.
-}
-
-/// Events emitted by the `EventLoop` to user-land.
-#[derive(Debug)]
-pub enum Event {
-    /// A peer opened a stream requesting a file. The raw `data` might be the filename
-    /// or something else depending on how you implement your protocol.
-    InboundFileRequest {
-        peer: PeerId,
-        file_name: String,
-        stream: Stream,
-    },
-    // Add more events as needed, e.g. inbound/outbound errors, progress, etc.
 }

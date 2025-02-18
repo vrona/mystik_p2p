@@ -1,5 +1,5 @@
 [package]
-name = "file-sharing"
+name = "node_autonomos"
 version = "0.1.0"
 author = ["VRONA | The Decentralized Intelligence Lab <travis@vrona.xyz>"]
 description = "File sharing throught libp2p"

@@ -4,7 +4,7 @@ pub mod blakecheck;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf};
 use futures::{prelude::*, StreamExt};
-use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol};
+use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, rendezvous};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
 pub use crate::composite::{Client, Event, EventLoop};
@@ -215,4 +215,28 @@ impl NodeManager{
         
         Ok(())
     }
+
+    /// Register this node with a rendezvous server.
+    /// rendezvous_addr: multiaddr of the rendezvous server.
+    /// rendezvous_peer: PeerId of the rendezvous server.
+    /// namespace: the namespace in which to register.
+    pub async fn register_rendezvous(&mut self, rendezvous_addr: Multiaddr, rendezvous_peer: PeerId, namespace: String) -> Result<(), Box<dyn Error>> {
+        let ns = rendezvous::Namespace::new(namespace)?;
+        // Dial the rendezvous server if not already connected.
+        self.client.dial(rendezvous_peer, rendezvous_addr).await?;
+        // Once connected, register.
+        self.event_loop.lock().await.swarm_mut().behaviour_mut().rendezvous.register(ns, rendezvous_peer, None)
+            .map_err(|e| format!("Failed to register with rendezvous server: {}", e))?;
+        Ok(())
+    }
+
+    /// Discover peers via a rendezvous server.
+    /// namespace: the namespace to query.
+    /// rendezvous_peer: PeerId of the rendezvous server.
+    pub async fn discover_rendezvous(&mut self, namespace: String, rendezvous_peer: PeerId) -> Result<(), Box<dyn Error>> {
+        let ns = rendezvous::Namespace::new(namespace)?;
+        self.event_loop.lock().await.swarm_mut().behaviour_mut().rendezvous.discover(Some(ns), None, None, rendezvous_peer);
+        Ok(())
+    }
+
 }

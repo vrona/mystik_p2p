@@ -25,10 +25,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = node_config::load_node_config()?;
 
     // Start listening on a default address.
-    let listen_address: Option<Multiaddr> = config.listen_addr; //Some("/ip4/127.0.0.1/udp/9004/quic-v1".parse()?); //config.listen_addr;
+    let listen_address: Option<Multiaddr> = config.listen_addr;
 
     // Peer
-    let peer: Option<Multiaddr> = Some("/ip4/127.0.0.1/udp/56571/quic-v1/p2p/12D3KooWMCGxDp7qsmQ6498PJU3n3SfssgY9XYFqG8ohC7Ck9qb9".parse()?);
+    let peer: Option<Multiaddr> = None;
 
     // Create launch Node
     let mut node_manager = NodeManager::new(config.secret_seed, listen_address, peer).await?;

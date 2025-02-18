@@ -50,7 +50,7 @@ pub fn get_storage_dir() -> String {
 /// and a stream-based file exchange protocol.
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "CompositeEvent")]
-struct CompositeBehaviour {
+pub struct CompositeBehaviour {
     pub relay: relay::Behaviour,
     pub ping: ping::Behaviour,
     pub identify: identify::Behaviour,
@@ -334,6 +334,9 @@ impl EventLoop {
         tokio::spawn(async move { self.run().await })
     }
 
+    pub fn swarm_mut(&mut self) -> &mut libp2p::Swarm<CompositeBehaviour> {
+        &mut self.swarm
+    }
 
     pub async fn run(&mut self) {
         // We also spawn an inbound streams handler for the file-exchange protocol.

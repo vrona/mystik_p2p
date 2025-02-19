@@ -492,7 +492,33 @@ impl EventLoop {
                     }
                 }
             }
-            _ => {}
+            SwarmEvent::ConnectionClosed { peer_id, .. } => {
+            tracing::info!("Disconnected from {}", peer_id);
+            }
+            SwarmEvent::Behaviour(CompositeEvent::Rendezvous(
+                rendezvous::server::Event::PeerRegistered { peer, registration },
+            )) => {
+                tracing::info!(
+                    "Peer {} registered for namespace '{}'",
+                    peer,
+                    registration.namespace
+                );
+            }
+            SwarmEvent::Behaviour(CompositeEvent::Rendezvous(
+                rendezvous::server::Event::DiscoverServed {
+                    enquirer,
+                    registrations,
+                },
+            )) => {
+                tracing::info!(
+                    "Served peer {} with {} registrations",
+                    enquirer,
+                    registrations.len()
+                );
+            }
+            other => {
+                tracing::debug!("Unhandled event: {:?}", other);
+            }
         }
     }
 

@@ -4,6 +4,7 @@ use std::path::Path;
 use blake3::Hasher;
 use std::result::Result::Ok;
 
+pub mod blakecheck; 
 use anyhow::{anyhow, Error, Result};
 
 use chacha20poly1305::aead::{OsRng, stream::{EncryptorBE32, DecryptorBE32}};

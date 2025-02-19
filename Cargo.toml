@@ -6,9 +6,10 @@ edition = "2021"
 [workspace]
 members = [ 
     "content-hashing",
-    "node_autonomos", "graphdisco",
-    "metadata-mrkl", "node_syndesmos",
+    "metadata-mrkl",
     "nodecommand",
+    "node_autonomos",
+     "node_syndesmos",
     "phantomg",
     "phantoms",
 ]

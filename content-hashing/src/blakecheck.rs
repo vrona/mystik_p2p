@@ -14,7 +14,7 @@ const CHUNK_SIZE: usize = 64 * 1024; // 16 KiB
 ///  1) 8 bytes:  little-endian file length
 ///  2) file content (that many bytes)
 ///  3) 32 bytes: BLAKE3 hash
-pub(crate) async fn send_file_with_hash<S>(
+pub async fn send_file_with_hash<S>(
     mut stream: S,
     file_path: &Path,
 ) -> Result<(), Error> where S: AsyncWriteExt + Unpin, {
@@ -68,7 +68,7 @@ pub(crate) async fn send_file_with_hash<S>(
 ///  1) 8 bytes:  little-endian file length
 ///  2) file content (that many bytes)
 ///  3) 32 bytes: BLAKE3 hash
-pub(crate) async fn receive_file_with_hash<R>(
+pub async fn receive_file_with_hash<R>(
     mut reader: futures::io::ReadHalf<R>,
     output_path: &Path,
 ) -> Result<(), Error> where R: AsyncReadExt + Unpin, {

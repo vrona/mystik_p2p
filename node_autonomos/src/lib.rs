@@ -1,7 +1,7 @@
 
 mod node_regular;
 
-mod blakecheck;
+use content_hashing::blakecheck;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf};
 use futures::{prelude::*, StreamExt};

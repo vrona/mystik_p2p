@@ -141,7 +141,7 @@ impl AutonomosManager{
 
             // Retry mechanism: attempt multiple times until we find a provider.
             let mut attempts = 0;
-            let max_attempts = 5;
+            let max_attempts = 2;
             let mut provider_record: Option<Multiaddr> = None;
             while attempts < max_attempts {
                 attempts += 1;

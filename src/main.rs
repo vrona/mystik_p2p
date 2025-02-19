@@ -24,10 +24,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Load configuration from our node_config module.
     let config = node_config::load_node_config()?;
-    let listen_address: Option<Multiaddr> = config.listen_addr;
-    // For simplicity we use None for bootstrap/peer here.
-    let peer: Option<Multiaddr> = None;
-
+    
     // Ask the user which node type to launch.
     println!("Select node type: (1 = Syndesmos (Rendezvous Node), 2 = Autonomos (Regular Node))");
     io::stdout().flush()?;
@@ -37,6 +34,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Branch according to user selection.
     if choice == "1" {
+        
+        let listen_address: Option<Multiaddr> = config.listen_addr;
+        // For simplicity we use None for bootstrap/peer here.
+        let peer: Option<Multiaddr> = None;
+        
         println!("Launching Syndesmos (Rendezvous Node)...");
         // node_syndesmos::new returns (Client, event_stream, EventLoop)
         let mut syndesmos_node =
@@ -75,6 +77,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         } else if choice == "2" {
 
+            let listen_address: Option<Multiaddr> = config.listen_addr;
+            // For simplicity we use None for bootstrap/peer here.
+            let peer: Option<Multiaddr> = None;
+
             println!("Launching Autonomos (Regular Node)...");
             // node_autonomos::new returns (Client, event_stream, EventLoop)
             let mut autonomos_node =
@@ -92,16 +98,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     event_loop_clone.lock().await.run().await;
                 });
             }
-            
-            // Listen on the provided address or fallback.
-            match &listen_address {
-                Some(addr) => {
-                    autonomos_node.client.start_listening(addr.clone()).await?;
-                }
-                None => {
-                    autonomos_node.client.start_listening("/ip4/0.0.0.0/udp/0/quic-v1".parse()?).await?;
-                }
-            }
+
+            let namespace = "rendezvous".to_string();
+            let _register = autonomos_node.register_rendezvous(
+                config.fix_addr_1.unwrap(), 
+                config.peer_id_1.unwrap(), 
+                namespace.clone()).await;
+
+            let _discover = autonomos_node.discover_rendezvous(
+                namespace, 
+                config.peer_id_1.unwrap()).await;
+        
             println!("Autonomos node launched and connected to the network.");
             
             // Command-line interface loop for the autonomos node.

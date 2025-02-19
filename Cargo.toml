@@ -30,6 +30,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 content-hashing = { path = "./content-hashing" }
 node_autonomos   = { path = "./node_autonomos" }
+node_syndesmos   = { path = "./node_syndesmos" }
 metadata-mrkl   = { path = "./metadata-mrkl" }
 nodecommand = { path = "./nodecommand" }
 

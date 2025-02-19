@@ -1,11 +1,10 @@
 
-mod node_rendezvous;
-
+pub mod node_rendezvous;
 use content_hashing::blakecheck;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf};
 use futures::{prelude::*, StreamExt};
-use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, rendezvous};
+use libp2p::{core::Multiaddr, multiaddr::Protocol};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
 
@@ -13,7 +12,7 @@ use node_rendezvous::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub struct NodeManager {
+pub struct SyndesmosManager {
     pub client: Client,
     pub event_stream: Pin<Box<dyn Stream<Item = Event> + Send>>,
     pub event_loop: Arc<Mutex<EventLoop>>,
@@ -25,7 +24,7 @@ pub struct NodeManager {
 }
 
 
-impl NodeManager{
+impl SyndesmosManager{
 
     pub async fn new(secret_seed: Option<u8>, listen_address:Option<Multiaddr>, peer:Option<Multiaddr>) -> Result<Self, Box<dyn Error>> {
 

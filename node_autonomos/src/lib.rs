@@ -1,6 +1,5 @@
 
-mod node_regular;
-
+pub mod node_regular;
 use content_hashing::blakecheck;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf};
@@ -13,7 +12,7 @@ use node_regular::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub struct NodeManager {
+pub struct AutonomosManager {
     pub client: Client,
     pub event_stream: Pin<Box<dyn Stream<Item = Event> + Send>>,
     pub event_loop: Arc<Mutex<EventLoop>>,
@@ -25,7 +24,7 @@ pub struct NodeManager {
 }
 
 
-impl NodeManager{
+impl AutonomosManager{
 
     pub async fn new(secret_seed: Option<u8>, listen_address:Option<Multiaddr>, peer:Option<Multiaddr>) -> Result<Self, Box<dyn Error>> {
 

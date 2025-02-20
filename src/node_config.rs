@@ -15,26 +15,36 @@ pub struct NodeConfig {
 }
 
 /// Function to load the appropriate environment variables
-pub fn load_node_config() -> Result<NodeConfig, Box<dyn Error>> {
+pub fn load_node_config(chosen_node: &str) -> Result<NodeConfig, Box<dyn Error>> {
     // Ask the user which type of node they want to launch
-    println!("Select node type: (1 = Bootstrap 1, 2 = Bootstrap 2, Enter = Regular Node)");
-    io::stdout().flush()?; // Ensure prompt is printed
-
-    let mut node_input = String::new();
-    io::stdin().read_line(&mut node_input)?;
-    let node_choice = node_input.trim();
-
+    
     // Load the correct .env file if this is a bootstrap node
-    match node_choice {
+    match chosen_node {
+
         "1" => {
-            dotenv::from_filename(".env.bootstrap1").ok();
-            println!("Loaded environment file: .env.bootstrap1");
+            println!("Select Syndesmos node number: (1 = Syndesmos_2, 2 = Syndesmos_2");
+            io::stdout().flush()?; // Ensure prompt is printed
+
+            let mut node_input = String::new();
+            io::stdin().read_line(&mut node_input)?;
+            let node_choice = node_input.trim();
+
+            match node_choice {
+                "1" => {
+                    dotenv::from_filename(".env.bootstrap1").ok();
+                    println!("Loaded environment file: .env.bootstrap1");
+                }
+                "2" => {
+                    dotenv::from_filename(".env.bootstrap2").ok();
+                    println!("Loaded environment file: .env.bootstrap2");
+                }
+                _ => {
+                    eprintln!("Invalid slection.");
+                    return Err("Invalid syndesmos number.".into());
+                }
+            }
         }
         "2" => {
-            dotenv::from_filename(".env.bootstrap2").ok();
-            println!("Loaded environment file: .env.bootstrap2");
-        }
-        "" => {
             dotenv::from_filename(".env").ok();
             println!("Running as a regular node (no bootstrap env loaded).");
             //dotenv().ok(); // Load a default .env file if needed

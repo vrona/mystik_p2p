@@ -22,9 +22,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    // Load configuration from our node_config module.
-    let config = node_config::load_node_config()?;
-    
     // Ask the user which node type to launch.
     println!("Select node type: (1 = Syndesmos (Rendezvous Node), 2 = Autonomos (Regular Node))");
     io::stdout().flush()?;
@@ -34,13 +31,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Branch according to user selection.
     if choice == "1" {
+        // Load configuration from our node_config module.
+        let config = node_config::load_node_config("1")?;
         
         let listen_address: Option<Multiaddr> = config.listen_addr;
         // For simplicity we use None for bootstrap/peer here.
         let peer: Option<Multiaddr> = None;
         
         println!("Launching Syndesmos (Rendezvous Node)...");
-        // node_syndesmos::new returns (Client, event_stream, EventLoop)
+
         let mut syndesmos_node =
             SyndesmosManager::new(config.secret_seed, listen_address.clone(), peer).await?;
 
@@ -77,12 +76,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         } else if choice == "2" {
 
-            let listen_address: Option<Multiaddr> = config.listen_addr;
+            // Load configuration from our node_config module.
+        let config = node_config::load_node_config("2")?;
+
+            let listen_address: Option<Multiaddr> = None;
             // For simplicity we use None for bootstrap/peer here.
             let peer: Option<Multiaddr> = None;
 
             println!("Launching Autonomos (Regular Node)...");
-            // node_autonomos::new returns (Client, event_stream, EventLoop)
+
             let mut autonomos_node =
                 node_autonomos::AutonomosManager::new(config.secret_seed, listen_address.clone(), peer).await?;
             

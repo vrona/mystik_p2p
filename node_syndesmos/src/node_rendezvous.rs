@@ -448,7 +448,7 @@ impl EventLoop {
                 tracing::info!(
                     "Peer {} registered for namespace '{}'",
                     peer,
-                    registration.namespace
+                    registration.namespace,
                 );
             }
             SwarmEvent::Behaviour(CompositeEvent::Rendezvous(
@@ -457,7 +457,7 @@ impl EventLoop {
                 tracing::info!(
                     "Served peer {} with {} registrations",
                     enquirer,
-                    registrations.len()
+                    registrations.len(),
                 );
             }
             

@@ -107,8 +107,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("Invalid selection. Exiting.");
         }
 
-        // Keep the node running indefinitely.
-        pending::<()>().await;
         Ok(())
 }
 
@@ -335,5 +333,7 @@ async fn command_loop_autonomos(
                    | get <file_name> <file_type> <secret> <private_key> <nonce>\
                    | exit)");
     }
+    // Keep the node running indefinitely.
+        pending::<()>().await;
     Ok(())
 }

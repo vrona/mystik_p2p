@@ -33,21 +33,43 @@ impl AutonomosManager{
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
-        let (mut client, event_stream, composite_event_loop) = node_regular::new(secret_seed).await?;
+        let (
+            mut client,
+            event_stream,
+            composite_event_loop,
+        ) = node_regular::new(secret_seed).await?;
         
+        // let event_loop = Arc::new(Mutex::new(composite_event_loop));
+
+        // // Spawn the composite in the background.
+        // {
+        //     let event_loop_clone = event_loop.clone();
+        //         tokio::spawn(async move {
+        //         event_loop_clone.lock().await.run().await;
+        //     });        
+        // }
+
+         // Extract the shared listen address handle from the event loop.
+        // This field is an Arc<Mutex<Option<Multiaddr>>> that is updated by the event loop.
+        let listen_addr_handle = composite_event_loop.actual_listen_addr.clone();
+
+        // Spawn the event loop using its spawn() method.
+        // This consumes the composite event loop and runs it in its own task.
+               // Wrap the original event loop in an Arc so that other functions can later
+        // send commands (if needed) via locking.
+        // (Note: Direct mutable access to the swarm is discouraged; instead, use the client.)
         let event_loop = Arc::new(Mutex::new(composite_event_loop));
 
-
-         // Spawn the composite in the background.
+        let local_peer_id: PeerId = {
+        let guard = event_loop.lock().await;
+            (*guard).local_peer_id()
+            };
         {
-            let event_loop_clone = event_loop.clone();
-                let local_peer_id = event_loop_clone.lock().await.local_peer_id();
-                println!("Local PeerId: {}", local_peer_id);
-
-                tokio::spawn(async move {
-                event_loop_clone.lock().await.run().await;
-            });
-        }
+        let event_loop_clone = event_loop.clone();
+            tokio::spawn(async move {
+               event_loop_clone.lock().await.run().await;
+        });
+    }
 
         // Listen on the user-provided address, or fallback to /ip4/0.0.0.0/udp/0/quic-v1.
         match &listen_address {
@@ -76,6 +98,26 @@ impl AutonomosManager{
                 .await
                 .expect("Dial to succeed");
         }
+
+         let addr_to_advertise = match &listen_address {
+            Some(user_addr) => user_addr.clone(),
+            None => {
+                loop {
+                    let maybe_addr = {
+                        let guard = listen_addr_handle.lock().await;
+                        (*guard).clone()
+                    };
+                    if let Some(addr) = maybe_addr {
+                        // println!("Got ephemeral address: {}", addr);
+                        break addr;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        };
+
+        // 8) Advertise on the DHT
+        client.advertise(local_peer_id, addr_to_advertise).await?;
 
         Ok(Self {
             client,
@@ -139,43 +181,37 @@ impl AutonomosManager{
             addr.clone()
         } else {
 
-            // Retry mechanism: attempt multiple times until we find a provider.
-            let mut attempts = 0;
-            let max_attempts = 2;
-            let mut provider_record: Option<Multiaddr> = None;
-            while attempts < max_attempts {
-                attempts += 1;
-            // Optionally wait a short time for DHT propagation.
             tokio::time::sleep(Duration::from_secs(3)).await;
             
             // Query providers for the file name.
             let providers = self.client.get_providers(name.clone()).await?;
-            println!("Attempt {}: Providers for {}: {:?}", attempts, name, providers);
+            // println!("Attempt {}: Providers for {}: {:?}", attempts, name, providers);
             
+            let mut provider_record: Option<Multiaddr> = None;
+
             if !providers.is_empty() {
                 // Select the first provider.
                 let provider_peer_id = *providers.iter().next().unwrap();
                 println!("Found provider PeerId: {:?}", provider_peer_id);
                 
-                // Try to retrieve known addresses for that provider.
-                let remote_addr: Option<Multiaddr> = {
-                    let known_addrs: Vec<Multiaddr> = {
-                        let mut event_loop_lock = self.event_loop.lock().await;
-                        event_loop_lock.get_peer_addresses(&provider_peer_id)
-                    };
-                    known_addrs.first().map(|addr| addr.clone().with(Protocol::P2p(provider_peer_id)))
-                };
-                
-                if let Some(addr) = remote_addr {
-                    provider_record = Some(addr);
-                    break;
-                } else {
-                    println!("No known addresses for provider {:?}; retrying...", provider_peer_id);
-                }
+                // Retrieve known addresses for that provider.
+            let remote_addr: Option<Multiaddr> = {
+                let mut event_loop_lock = self.event_loop.lock().await;
+                let known_addrs: Vec<Multiaddr> = event_loop_lock.get_peer_addresses(&provider_peer_id);
+   
+                // Convert the first known address into one containing the PeerId.
+                known_addrs.first().map(|addr| addr.clone().with(Protocol::P2p(provider_peer_id)))
+            };
+            
+            if let Some(addr) = remote_addr {
+                provider_record = Some(addr);
             } else {
-                println!("No providers found on attempt {}.", attempts);
+                println!("No known addresses for provider {:?}; retrying...", provider_peer_id);
             }
+        } else {
+            println!("No providers found for file {}.", name);
         }
+        // Return an error if no provider address was found.
         provider_record.ok_or_else(|| format!("Could not find provider for file {}", name))?
     };
 
@@ -200,12 +236,6 @@ impl AutonomosManager{
                 let name = name.clone();
                 async move { client_clone.request_file(p, name).await }.boxed()
             });
-        // OLD Working Try requesting the file from each provider until one succeeds.
-        // let requests = providers.into_iter().map(|p| {
-        //     let mut self.client = self.client.clone();
-        //     let name = name.clone();
-        //     async move { self.client.request_file(p, name).await }.boxed()
-        // });
 
         let _ = futures::future::select_ok(requests)
             .await

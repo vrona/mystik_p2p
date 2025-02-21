@@ -5,7 +5,8 @@ use libp2p::kad::KBucketKey;
 
 use std::{
     collections::{hash_map, HashMap, HashSet}, // , error::Error as StdError
-    time::Duration
+    time::Duration,
+    sync::Arc,
 };
 
 use futures::{
@@ -35,7 +36,7 @@ use libp2p::{
 
 use libp2p_stream as stream;
 //use rand::RngCore;
-use tokio::task::JoinHandle;
+use tokio::{task::JoinHandle, sync::Mutex};
 
 /// A custom protocol tag for our file-exchange streams.
 const FILE_PROTOCOL: StreamProtocol = StreamProtocol::new("/file-exchange/1");
@@ -113,6 +114,11 @@ impl From<()> for CompositeEvent {
 enum Command {
     StartListening {
         addr: Multiaddr,
+        sender: oneshot::Sender<Result<(), AnyhowError>>,
+    },
+    Advertise{
+        peer_id: PeerId,
+        address: Multiaddr,
         sender: oneshot::Sender<Result<(), AnyhowError>>,
     },
     Dial {
@@ -206,10 +212,13 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
     let (command_sender, command_receiver) = mpsc::channel(32);
     let (event_sender, event_receiver) = mpsc::channel(32);
 
+    // Create the shared variable for the actual listen address.
+    let actual_listen_addr: Arc<Mutex<Option<Multiaddr>>> = Arc::new(Mutex::new(None));
+    
     Ok((
         Client { sender: command_sender },
         event_receiver,
-        EventLoop::new(swarm, command_receiver, event_sender),
+        EventLoop::new(swarm, command_receiver, event_sender, actual_listen_addr.clone()),
     ))
 }
 
@@ -225,6 +234,7 @@ impl Client {
         &mut self,
         addr: Multiaddr,
     ) -> Result<(), AnyhowError> {
+    
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::StartListening { addr, sender })
@@ -234,6 +244,20 @@ impl Client {
         receiver
             .await
             .map_err(|e| anyhow!("StartListening command failed to receive response: {}", e))?
+    }
+
+    /// Advertising the local address to the DHT
+    pub async fn advertise(
+        &mut self,
+        peer_id: PeerId,
+        address: Multiaddr,
+        ) -> Result<(), AnyhowError> {
+            let (sender, receiver) = oneshot::channel();
+            self.sender
+                .send(Command::Advertise { peer_id, address, sender })
+                .await
+                .map_err(|e| anyhow!("Failed to send Advertising command: {}", e))?;
+            receiver.await.map_err(|e| anyhow!("Advertising command failed: {}", e))?
     }
 
     /// Register helper
@@ -335,6 +359,7 @@ pub struct EventLoop {
     swarm: Swarm<CompositeBehaviour>,
     command_receiver: mpsc::Receiver<Command>,
     event_sender: mpsc::Sender<Event>,
+    pub actual_listen_addr: Arc<Mutex<Option<Multiaddr>>>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), AnyhowError>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), AnyhowError>>>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>>,
@@ -346,11 +371,14 @@ impl EventLoop {
         swarm: Swarm<CompositeBehaviour>,
         command_receiver: mpsc::Receiver<Command>,
         event_sender: mpsc::Sender<Event>,
+        actual_listen_addr: Arc<Mutex<Option<Multiaddr>>>,
     ) -> Self {
+
         Self {
             swarm,
             command_receiver,
             event_sender,
+            actual_listen_addr,
             pending_dial: Default::default(),
             pending_start_providing: Default::default(),
             pending_get_providers: Default::default(),
@@ -416,19 +444,13 @@ impl EventLoop {
     /// Returns the known multiaddresses for the given `peer_id` by iterating over the routing table.
     pub fn get_peer_addresses(&mut self, target: &PeerId) -> Vec<Multiaddr> {
         
-        // Convert your target PeerId into a KBucket key.
         let target_key = KBucketKey::new(target.to_bytes());
-        
         let mut addrs = Vec::new();
 
-        // Iterate over all buckets in the routing table.
+        // Iterate over all non-empty buckets.
         for bucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
-            // Each bucket contains entries that have a key and associated addresses.
             for entry in bucket.iter() {
-                // Compare the entry's peer id with the target.
                 if *entry.node.key == target_key {
-                    // `entry.node.value()` is typically a collection of Multiaddrs.
-                    // The API might vary; adjust as needed.
                     addrs.extend(entry.node.value.iter().cloned());
                 }
             }
@@ -470,6 +492,8 @@ impl EventLoop {
     }
 
     async fn handle_swarm_event(&mut self, event: SwarmEvent<CompositeEvent>) {
+    
+        let mut cookie = None;
         match event {
 
             SwarmEvent::Behaviour(CompositeEvent::Rendezvous(event)) => {
@@ -485,7 +509,8 @@ impl EventLoop {
                             rendezvous_node,
                             ttl
                         );
-                    } rendezvous::client::Event::RegisterFailed {
+                    },
+                    rendezvous::client::Event::RegisterFailed {
                         rendezvous_node,
                         namespace,
                         error,
@@ -497,6 +522,30 @@ impl EventLoop {
                         error
                     );
                     },
+                    rendezvous::client::Event::Discovered {
+                        registrations,
+                        cookie: new_cookie,
+                        ..
+                    } => {
+                        cookie.replace(new_cookie);
+
+                        for registration in registrations {
+                            for address in registration.record.addresses() {
+                                let peer = registration.record.peer_id();
+                                tracing::info!(%peer, %address, "Discovered peer");
+
+                                let p2p_suffix = Protocol::P2p(peer);
+                                let address_with_p2p =
+                                    if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
+                                        address.clone().with(p2p_suffix)
+                                    } else {
+                                        address.clone()
+                                    };
+
+                                self.swarm.dial(address_with_p2p).unwrap();
+                            }
+                        }
+                },
                     _ => {}
                 }
             },
@@ -531,11 +580,12 @@ impl EventLoop {
                 }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
-                let local_peer_id = *self.swarm.local_peer_id();
-                println!(
-                    "Local node is listening on {:?}",
-                    address.with(Protocol::P2p(local_peer_id))
-                );
+                let local_peer_id = self.swarm.local_peer_id().clone();
+                let full_addr = address.with(Protocol::P2p(local_peer_id));
+                
+                // Update the shared state with the actual bound address.
+                *self.actual_listen_addr.lock().await = Some(full_addr.clone());
+                println!("Local node is listening on {:?}", *self.actual_listen_addr.lock().await);
             }
             SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                 if endpoint.is_dialer() {
@@ -547,7 +597,7 @@ impl EventLoop {
                     if let Some((namespace, reg_sender)) = self.pending_register.remove(&peer_id){
                         let ns = rendezvous::Namespace::from_static(namespace);
                         let register_result = self.swarm.behaviour_mut().rendezvous.register(
-                            ns,
+                            ns.clone(),
                             peer_id, // Using the established peer_id as the rendezvous target.
                             None,
                         ).map_err(|e| e.into()); // Convert RegisterError into anyhow::Error
@@ -559,12 +609,14 @@ impl EventLoop {
                             );
                         } else {
                             tracing::info!("Successfully registered with rendezvous node {}", peer_id);
+                            self.swarm.behaviour_mut().rendezvous.discover(Some(ns), None, None, peer_id);
+                            tracing::info!("Discovery query initiated on rendezvous node {}", peer_id);
+                            
                         }
                         // Inform the pending dial command about the result of registration.
                         let _ = reg_sender.send(register_result);
                     }
-                }
-                
+                }            
             }
             SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                 if let Some(peer_id) = peer_id {
@@ -580,11 +632,22 @@ impl EventLoop {
     async fn handle_command(&mut self, command: Command) {
         match command {
             Command::StartListening { addr, sender } => {
+
                 let result = self.swarm
                     .listen_on(addr)
                     .map(|_listener_id| ())
                     .map_err(|e| anyhow!("Failed to listen on address: {}", e));
                 let _ = sender.send(result);
+            }
+            Command::Advertise {
+                peer_id,
+                address,
+                sender
+            } => {
+                
+                self.swarm.add_external_address(address.clone());
+                self.swarm.behaviour_mut().kademlia.add_address(&peer_id, address);
+                let _ = sender.send(Ok(()));
             }
             Command::Register {
                 peer_id,
@@ -592,7 +655,7 @@ impl EventLoop {
                 namespace,
                 sender 
             } => {
-                self.swarm.add_external_address(peer_addr.clone());
+                //self.swarm.add_external_address(peer_addr.clone());
 
                 // Dial the rendezvous server.
                 let dial_result = self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id)));
@@ -612,7 +675,7 @@ impl EventLoop {
             } => {
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
                     // Add to kademlia so we remember addresses for peer.
-                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, peer_addr.clone());
+                    //self.swarm.behaviour_mut().kademlia.add_address(&peer_id, peer_addr.clone());
 
                     // Actually dial it:
                     let dial_res = self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id)));

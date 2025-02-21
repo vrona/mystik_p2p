@@ -7,7 +7,7 @@ use futures::{prelude::*, StreamExt};
 use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, rendezvous};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
-
+use tracing::debug; 
 use node_regular::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -219,21 +219,29 @@ impl AutonomosManager{
     /// rendezvous_addr: multiaddr of the rendezvous server.
     /// rendezvous_peer: PeerId of the rendezvous server.
     /// namespace: the namespace in which to register.
-    pub async fn register_rendezvous(&mut self, rendezvous_addr: Multiaddr, rendezvous_peer: PeerId, namespace: String) -> Result<(), Box<dyn Error>> {
-        let ns = rendezvous::Namespace::new(namespace)?;
+    pub async fn register_rendezvous(&mut self, rendezvous_addr: Multiaddr, rendezvous_peer: PeerId, namespace: &'static str) -> Result<(), Box<dyn Error>> {
+        
+        debug!("register_rendezvous fn has been called");
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .try_init();
+
+        //self.event_loop.lock().await.swarm_mut().add_external_address(rendezvous_addr.clone());
+        println!("rendezvous_addr: {}", rendezvous_addr);
+
         // Dial the rendezvous server if not already connected.
-        self.client.dial(rendezvous_peer, rendezvous_addr).await?;
+        self.client.register(rendezvous_peer, rendezvous_addr.clone(), namespace).await?;
+
         // Once connected, register.
-        self.event_loop.lock().await.swarm_mut().behaviour_mut().rendezvous.register(ns, rendezvous_peer, None)
-            .map_err(|e| format!("Failed to register with rendezvous server: {}", e))?;
+
         Ok(())
     }
 
     /// Discover peers via a rendezvous server.
     /// namespace: the namespace to query.
     /// rendezvous_peer: PeerId of the rendezvous server.
-    pub async fn discover_rendezvous(&mut self, namespace: String, rendezvous_peer: PeerId) -> Result<(), Box<dyn Error>> {
-        let ns = rendezvous::Namespace::new(namespace)?;
+    pub async fn discover_rendezvous(&mut self, namespace: &'static str, rendezvous_peer: PeerId) -> Result<(), Box<dyn Error>> {
+        let ns = rendezvous::Namespace::from_static(namespace);
         self.event_loop.lock().await.swarm_mut().behaviour_mut().rendezvous.discover(Some(ns), None, None, rendezvous_peer);
         Ok(())
     }

@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     // Ask the user which node type to launch.
-    println!("Select node type: (1 = Syndesmos (Rendezvous Node), 2 = Autonomos (Regular Node))");
+    println!("Select node type: (1 = Syndesmos, 2 = Autonomos)");
     io::stdout().flush()?;
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         
         println!("Launching Syndesmos (Rendezvous Node)...");
 
-        let mut syndesmos_node =
+        let syndesmos_node =
             SyndesmosManager::new(config.secret_seed, listen_address.clone(), peer).await?;
 
         // Wait a moment for listening to be established.
@@ -56,16 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 event_loop_clone.lock().await.run().await;
             });
         }
-        
-        // Listen on the provided address or fallback.
-        match &listen_address {
-            Some(addr) => {
-                syndesmos_node.client.start_listening(addr.clone()).await?;
-            }
-            None => {
-                syndesmos_node.client.start_listening("/ip4/0.0.0.0/udp/0/quic-v1".parse()?).await?;
-            }
-        }
+
         println!("Syndesmos node launched and connected to the network.");
         
         // Command-line interface loop for the syndesmos node.
@@ -101,16 +92,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 });
             }
 
-            let namespace = "rendezvous".to_string();
+            let namespace = "rendezvous";
             let _register = autonomos_node.register_rendezvous(
-                config.fix_addr_1.unwrap(), 
+                config.fix_addr_1.unwrap(), // "/ip4/127.0.0.1/udp/9000/quic-v1".parse::<Multiaddr>().unwrap(), // , 
                 config.peer_id_1.unwrap(), 
-                namespace.clone()).await;
-
-            let _discover = autonomos_node.discover_rendezvous(
-                namespace, 
-                config.peer_id_1.unwrap()).await;
-        
+                namespace).await;
+            
+            
             println!("Autonomos node launched and connected to the network.");
             
             // Command-line interface loop for the autonomos node.

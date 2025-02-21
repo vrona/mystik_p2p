@@ -177,7 +177,7 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
         .with_quic()
         .with_behaviour(|key| {
             let relay_behaviour = relay::Behaviour::new(key.public().to_peer_id(), Default::default());
-            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(10)));
+            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(1)));
             let identify_behaviour = identify::Behaviour::new(identify::Config::new("/composite/0.1.0".to_string(), key.public()));
             let store = kad::store::MemoryStore::new(key.public().to_peer_id());
             let mut kademlia_behaviour = kad::Behaviour::new(peer_id, store);
@@ -441,6 +441,26 @@ impl EventLoop {
 
     async fn handle_swarm_event(&mut self, event: SwarmEvent<CompositeEvent>) {
         match event {
+
+            SwarmEvent::Behaviour(CompositeEvent::Rendezvous(
+                rendezvous::server::Event::PeerRegistered { peer, registration },
+            )) => {
+                tracing::info!(
+                    "Peer {} registered for namespace '{}'",
+                    peer,
+                    registration.namespace
+                );
+            }
+            SwarmEvent::Behaviour(CompositeEvent::Rendezvous(
+                rendezvous::server::Event::DiscoverServed { enquirer, registrations },
+            )) => {
+                tracing::info!(
+                    "Served peer {} with {} registrations",
+                    enquirer,
+                    registrations.len()
+                );
+            }
+            
             SwarmEvent::Behaviour(CompositeEvent::Kademlia(
                 kad::Event::OutboundQueryProgressed {
                     id,
@@ -494,27 +514,6 @@ impl EventLoop {
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
             tracing::info!("Disconnected from {}", peer_id);
-            }
-            SwarmEvent::Behaviour(CompositeEvent::Rendezvous(
-                rendezvous::server::Event::PeerRegistered { peer, registration },
-            )) => {
-                tracing::info!(
-                    "Peer {} registered for namespace '{}'",
-                    peer,
-                    registration.namespace
-                );
-            }
-            SwarmEvent::Behaviour(CompositeEvent::Rendezvous(
-                rendezvous::server::Event::DiscoverServed {
-                    enquirer,
-                    registrations,
-                },
-            )) => {
-                tracing::info!(
-                    "Served peer {} with {} registrations",
-                    enquirer,
-                    registrations.len()
-                );
             }
             other => {
                 tracing::debug!("Unhandled event: {:?}", other);

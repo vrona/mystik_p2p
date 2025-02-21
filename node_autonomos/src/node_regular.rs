@@ -128,6 +128,12 @@ enum Command {
         file_name: String,
         sender: oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>,
     },
+    Register{
+        peer_id: PeerId,
+        peer_addr: Multiaddr,
+        namespace: &'static str,
+        sender: oneshot::Sender<Result<(), AnyhowError>>,
+    },
     // -----------------------
     // Stream-based file request:
     RequestFile {
@@ -177,7 +183,7 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
         .with_quic()
         .with_behaviour(|key| {
             let relay_behaviour = relay::Behaviour::new(key.public().to_peer_id(), Default::default());
-            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(10)));
+            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(1)));
             let identify_behaviour = identify::Behaviour::new(identify::Config::new("/composite/0.1.0".to_string(), key.public()));
             let store = kad::store::MemoryStore::new(key.public().to_peer_id());
             let mut kademlia_behaviour = kad::Behaviour::new(peer_id, store);
@@ -193,7 +199,7 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
                 rendezvous: rendezvous_behaviour,
             }
         })?
-        .with_swarm_config(|config| config.with_idle_connection_timeout(Duration::from_secs(60)))
+        .with_swarm_config(|config| config.with_idle_connection_timeout(Duration::from_secs(5)))
         .build();
 
     // Set up channels for client commands and event notifications.
@@ -228,6 +234,28 @@ impl Client {
         receiver
             .await
             .map_err(|e| anyhow!("StartListening command failed to receive response: {}", e))?
+    }
+
+    /// Register helper
+    pub async fn register(
+        &mut self,
+        peer_id: PeerId,
+        peer_addr: Multiaddr,
+        namespace: &'static str,
+    ) -> Result<(), AnyhowError> {
+        let (sender, receiver) = oneshot::channel();
+        self.sender
+            .send(Command::Register {
+                peer_id,
+                peer_addr,
+                namespace,
+                sender,
+            })
+            .await
+            .map_err(|e| anyhow!("Failed to send Register command: {}", e))?;
+        receiver
+            .await
+            .map_err(|e| anyhow!("Register command failed to receive response: {}", e))?
     }
 
     /// Dial the given peer at the given address.
@@ -310,6 +338,7 @@ pub struct EventLoop {
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), AnyhowError>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), AnyhowError>>>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>>,
+    pending_register: HashMap<PeerId, (&'static str, oneshot::Sender<Result<(), AnyhowError>>)>,
 }
 
 impl EventLoop {
@@ -325,6 +354,7 @@ impl EventLoop {
             pending_dial: Default::default(),
             pending_start_providing: Default::default(),
             pending_get_providers: Default::default(),
+            pending_register: Default::default(),
         }
     }
 
@@ -441,6 +471,35 @@ impl EventLoop {
 
     async fn handle_swarm_event(&mut self, event: SwarmEvent<CompositeEvent>) {
         match event {
+
+            SwarmEvent::Behaviour(CompositeEvent::Rendezvous(event)) => {
+                tracing::debug!("Rendezvous client event: {:?}", event);
+     
+               match event { 
+                    rendezvous::client::Event::Registered {
+                        ttl,
+                        namespace,
+                        rendezvous_node } => { 
+                            tracing::info!("Registered for namespace '{}' at rendezvous point {} for the next {} seconds",
+                            namespace,
+                            rendezvous_node,
+                            ttl
+                        );
+                    } rendezvous::client::Event::RegisterFailed {
+                        rendezvous_node,
+                        namespace,
+                        error,
+                    } => {
+                        tracing::error!(
+                            "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
+                        rendezvous_node,
+                        namespace,
+                        error
+                    );
+                    },
+                    _ => {}
+                }
+            },
             SwarmEvent::Behaviour(CompositeEvent::Kademlia(
                 kad::Event::OutboundQueryProgressed {
                     id,
@@ -480,10 +539,32 @@ impl EventLoop {
             }
             SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                 if endpoint.is_dialer() {
+                    // Handle any pending dial command first.
                     if let Some(sender) = self.pending_dial.remove(&peer_id) {
                         let _ = sender.send(Ok(()));
                     }
+                        // check if there is a pending registration for this peer.
+                    if let Some((namespace, reg_sender)) = self.pending_register.remove(&peer_id){
+                        let ns = rendezvous::Namespace::from_static(namespace);
+                        let register_result = self.swarm.behaviour_mut().rendezvous.register(
+                            ns,
+                            peer_id, // Using the established peer_id as the rendezvous target.
+                            None,
+                        ).map_err(|e| e.into()); // Convert RegisterError into anyhow::Error
+                        if let Err(ref error) = register_result {
+                            tracing::error!(
+                                "Failed to register with rendezvous node {}: {}",
+                                peer_id,
+                                error
+                            );
+                        } else {
+                            tracing::info!("Successfully registered with rendezvous node {}", peer_id);
+                        }
+                        // Inform the pending dial command about the result of registration.
+                        let _ = reg_sender.send(register_result);
+                    }
                 }
+                
             }
             SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                 if let Some(peer_id) = peer_id {
@@ -505,6 +586,25 @@ impl EventLoop {
                     .map_err(|e| anyhow!("Failed to listen on address: {}", e));
                 let _ = sender.send(result);
             }
+            Command::Register {
+                peer_id,
+                peer_addr,
+                namespace,
+                sender 
+            } => {
+                self.swarm.add_external_address(peer_addr.clone());
+
+                // Dial the rendezvous server.
+                let dial_result = self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id)));
+                if let Err(e) = dial_result {
+                    let _ = sender.send(Err(anyhow!("Failed to dial for registration: {}", e)));
+                    return;
+                }
+
+                // Instead of immediately calling register, store the registration request.
+                // The ConnectionEstablished event will pick it up.
+                self.pending_register.insert(peer_id, (namespace, sender));
+            }
             Command::Dial {
                 peer_id,
                 peer_addr,
@@ -513,6 +613,7 @@ impl EventLoop {
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
                     // Add to kademlia so we remember addresses for peer.
                     self.swarm.behaviour_mut().kademlia.add_address(&peer_id, peer_addr.clone());
+
                     // Actually dial it:
                     let dial_res = self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id)));
                     match dial_res {

@@ -22,7 +22,7 @@ pub fn load_node_config(chosen_node: &str) -> Result<NodeConfig, Box<dyn Error>>
     match chosen_node {
 
         "1" => {
-            println!("Select Syndesmos node number: (1 = Syndesmos_2, 2 = Syndesmos_2");
+            println!("Select Syndesmos node number: (1 = Syndesmos_2, 2 = Syndesmos_2)");
             io::stdout().flush()?; // Ensure prompt is printed
 
             let mut node_input = String::new();

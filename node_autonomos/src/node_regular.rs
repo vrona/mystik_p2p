@@ -528,20 +528,28 @@ impl EventLoop {
                         ..
                     } => {
                         cookie.replace(new_cookie);
+                        let local_peer_id = self.swarm.local_peer_id().clone();
 
                         for registration in registrations {
                             for address in registration.record.addresses() {
+
                                 let peer = registration.record.peer_id();
                                 tracing::info!(%peer, %address, "Discovered peer");
+
+                                if peer == local_peer_id {
+                                    tracing::info!(%peer, "Skipping dialing self");
+                                    continue;
+                                }
 
                                 let p2p_suffix = Protocol::P2p(peer);
                                 let address_with_p2p =
                                     if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
-                                        address.clone().with(p2p_suffix)
+                                        address.clone().with(p2p_suffix.clone())
                                     } else {
                                         address.clone()
                                     };
-
+                                
+                                println!("YOUR NEIGHBORS \n {} \n", address_with_p2p);
                                 self.swarm.dial(address_with_p2p).unwrap();
                             }
                         }

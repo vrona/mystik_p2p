@@ -122,7 +122,6 @@ pub async fn get_cid_file(file_name: &str, file_type: &str, secret: &str)-> Resu
        
     println!("cid test get_cid_file: {}", cid_as_hex);
     Ok(cid_as_hex)
-
 } 
 
 pub async fn get_decrypt_file(hex_key: &str, hex_nonce: &str, cid_as_hex: &str, destination_path: &str)-> Result<(), Box<dyn Error>> { // "../content-hashing/data_dec/mystikp2p.png"
@@ -187,122 +186,26 @@ pub async fn local_path_to_cid(mid_as_hex: &str)-> Result<PathBuf, Box<dyn Error
 // ╚╝╚═╩╩╩╩═╩═╩═╝
 
 // Remote Node - Ask for file
-// async fn get_from_network_file(cid: &str, address: Multiaddr, peer_id: libp2p::PeerId) -> Result<(), Box<dyn Error>> {
-    
-//     let peer_address = format!("{}",address.with(Protocol::P2p(peer_id))); // /ip4/127.0.0.1/udp/9000/quic-v1/p2p/
-//     let opt = FlexOption {
-//         secret_key_seed: None,
-//         listen_address: None,
-//         peer: Some(peer_address.parse()?),
-//         argument: Get { 
-//             name: format!("{}.bin", cid)}, // kb.mp4
-//     };
-//     opt.run().await
-// }
+pub async fn propose_cid_ntwk(file_name: &str, file_type: &str, secret: &str)-> Result<[u8;32], Box<dyn Error>> {
 
-// pub async fn spread_file_ntwk(
-//     mid_as_hex: &str,
-//     local_node: Client,
-//     event_stream: Pin<Box<dyn futures::Stream<Item = Event>>>,
-//     event_loop: Arc<Mutex<EventLoop>>,
-//     listen_addr: &str,
-//     peer_bootstrap: &str
-// ) -> Result<(), Box<dyn Error>> {
+    // init the metadata
+    let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
 
-//     let cid_as_hex = midhex_to_cidhex(mid_as_hex).await?;
-//     let vv = format!("{}{}.bin", get_storage_dir(), cid_as_hex);
-//     println!("{}", vv);
-    
-//     let opt = FlexOption {
-//         client:local_node,
-//         event_stream: event_stream,
-//         event_loop: event_loop,
-//         listen_address: Some(listen_addr.parse()?), //Some("/ip4/127.0.0.1/udp/9000/quic-v1".parse()?), //Some(listen_addr.parse()?),
-//         peer: None, // Some(peer_bootstrap.parse()?)
-//         argument: Provide {
-//             path: format!("{}{}.bin", get_storage_dir(), cid_as_hex).into(),
-//             name: format!("{}.bin", cid_as_hex)},
-//     };
-//     opt.run().await
-// }
+    // prooving that metadata exist    
+    // let leaves: &[&str] = &[file_name, file_type, secret];
+    // let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
 
-// pub async fn call_file_ntwk(
-//     mid_as_hex: &str,
-//     local_node: Client,
-//     event_stream: Pin<Box<dyn futures::Stream<Item = Event> + Send>>,
-//     event_loop: Arc<Mutex<EventLoop>>,
-//     peer_bootstrap: &str
-// ) -> Result<(), Box<dyn Error>> {
-//     let mid_as_key  = hex_to_bytes::<32>(&mid_as_hex)
-//         .await?;
+    // if ! meta_exist{
+    //     return Err("Given metadata are not matching records".into());
+    // }
 
-//     let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
-//     println!("Check CID from Call: {}", cid_as_hex);
-//     let opt = FlexOption {
-//         client:local_node,
-//         event_stream: event_stream,
-//         event_loop: event_loop,
-//         listen_address: None,
-//         peer: None, //Some(peer_bootstrap.parse()?)
-//         argument: Get { name: format!("{}.bin", cid_as_hex) },
-//     };
-//     opt.run().await
-// }
+    // 1st level of Merkle (classic tree) get the metadata's MID
+    let mid_as_key = hex_to_bytes::<32>(&metadata.create_tree(true).await?).await?;
 
-// Remote Node - Been asked for file
-// pub async fn get_from_network_file(cid: &str, bootstrap_addr: Multiaddr) -> Result<(), Box<dyn Error>> {
-//     // Create the network using our public wrapper (which calls the internal network::new).
-//     let (mut network_client, mut _network_events, mut network_event_loop) =
-//         view_network(None).await?;
-    
-//     // Spawn the network event loop.
-//     tokio::spawn(async move {
-//         network_event_loop.run().await;
-//     });
-    
-//     // Dial the bootstrap node so that we join the DHT.
-//     if let Some(peer_component) = bootstrap_addr.iter().last() {
-//         if let Protocol::P2p(bootstrap_peer_id) = peer_component {
-//             network_client.dial(bootstrap_peer_id, bootstrap_addr.clone()).await?;
-//         } else {
-//             return Err("Bootstrap address must contain a PeerId.".into());
-//         }
-//     } else {
-//         return Err("Invalid bootstrap address.".into());
-//     }
-    
-//     // Give the network a moment for the DHT to update.
-//     tokio::time::sleep(Duration::from_secs(2)).await;
-    
-//     // Form the file name (this must match exactly what the provider advertised).
-//     let file_name = format!("{}.bin", cid);
-    
-//     // Query the DHT for providers of this file.
-//     let providers = network_client.get_providers(file_name.clone()).await?;
-//     if providers.is_empty() {
-//         return Err(format!("No provider found for file: {}", file_name).into());
-//     }
-    
-//     // Pick the first provider.
-//     let provider_peer_id = *providers.iter().next().unwrap();
-//     println!("Found provider PeerId: {:?}", provider_peer_id);
-    
-//     // At this point, you only have the PeerId.
-//     // You need to get the full network address (Multiaddr) to dial the provider.
-//     // Here we assume the provider is listening on a known base address.
-//     // In a real-world scenario, you might use the Identify protocol or other mechanisms.
-//     let base_addr: Multiaddr = "/ip4/127.0.0.1/udp/9000/quic-v1".parse()?;
-//     let provider_full_addr = base_addr.with(Protocol::P2p(provider_peer_id));
-//     println!("Dialing provider at: {:?}", provider_full_addr);
-    
-//     // Now build a FlexOption for the GET operation using the discovered address.
-//     let opt = FlexOption {
-//         secret_key_seed: None,
-//         listen_address: None,
-//         peer: Some(provider_full_addr),
-//         argument: Get { name: file_name },
-//     };
-    
-//     // Run the file retrieval.
-//     opt.run().await
-// }
+    // 2nd level of Merkle (Sparse tree)
+    // get the MID CID pair
+    // let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
+       
+    println!("mid_as_key propose_cid_ntwk: {:?}", mid_as_key);
+    Ok(mid_as_key)
+}

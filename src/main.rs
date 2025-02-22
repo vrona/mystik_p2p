@@ -120,7 +120,7 @@ async fn command_loop_syndesmos(
     println!(
         "Enter command: (store <file_name> <file_type> <secret> <file_path>\
          | spread <mid (metadata id)>\
-         | call <mid (metadata id)> <peer>\
+         | call <file_name> <file_type> <secret>\
          | get <file_name> <file_type> <secret> <private_key> <nonce>\
          | exit)"
     );
@@ -210,13 +210,13 @@ async fn command_loop_syndesmos(
             "exit" => break,
             _ => println!("Unknown command. Usage: store <file_name> <file_type> <secret> <file_path>\
                            | spread <mid (metadata id)>\
-                           | call <mid (metadata id)> <peer>\
+                           | call <file_name> <file_type> <secret>\
                            | get <file_name> <file_type> <secret> <private_key> <nonce>\
                            | exit"),
         }
         println!("Enter command: (store <file_name> <file_type> <secret> <file_path>\
                    | spread <mid (metadata id)>\
-                   | call <mid (metadata id)> <peer>\
+                   | call <file_name> <file_type> <secret>\
                    | get <file_name> <file_type> <secret> <private_key> <nonce>\
                    | exit)");     
     }
@@ -233,7 +233,7 @@ async fn command_loop_autonomos(
     println!(
         "Enter command: (store <file_name> <file_type> <secret> <file_path>\
          | spread <mid (metadata id)>\
-         | call <mid (metadata id)> <peer>\
+         | call <file_name> <file_type> <secret>\
          | get <file_name> <file_type> <secret> <private_key> <nonce>\
          | exit)"
     );
@@ -284,13 +284,21 @@ async fn command_loop_autonomos(
                 }
             }
             "call" => {
-                if parts.len() == 2 {
-                    let cid_as_hex = parts[1];
-                    //let cid_to_hex = nodecommand::midhex_to_cidhex(mid_as_hex).await?;
-                    match autonomos.get_file(cid_as_hex.to_string()).await
-                    {
-                        Ok(()) => println!("File transmitted successfully!"),
-                        Err(e) => eprintln!("Error transmitting file: {}", e),
+                if parts.len() == 4 {
+                    let file_name = parts[1];
+                    let file_type = parts[2];
+                    let secret = parts[3];
+
+                    match nodecommand::propose_cid_ntwk(file_name, file_type, secret).await {
+                        
+                        Ok(returned_mid_key) => {
+                            println!("Debug: Returned CID: {:?}", returned_mid_key);
+                                    
+                            autonomos.get_file(returned_mid_key).await?;
+                            println!("File retrieved successfully.")
+                        }
+
+                        Err(e) => eprintln!("Error retrieving file: {}", e),
                     }
                 }
             }
@@ -323,13 +331,13 @@ async fn command_loop_autonomos(
             "exit" => break,
             _ => println!("Unknown command. Usage: store <file_name> <file_type> <secret> <file_path>\
                            | spread <mid (metadata id)>\
-                           | call <mid (metadata id)> <peer>\
+                           | call <file_name> <file_type> <secret>\
                            | get <file_name> <file_type> <secret> <private_key> <nonce>\
                            | exit"),
         }
         println!("Enter command: (store <file_name> <file_type> <secret> <file_path>\
                    | spread <mid (metadata id)>\
-                   | call <mid (metadata id)> <peer>\
+                   | call <file_name> <file_type> <secret>\
                    | get <file_name> <file_type> <secret> <private_key> <nonce>\
                    | exit)");
     }

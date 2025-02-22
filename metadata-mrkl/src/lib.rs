@@ -67,6 +67,26 @@ impl Metadata {
         Ok(root_hex)
     }
 
+    // Metadata Tree Transient Creation TO DEL
+    pub async fn transient_tree(&mut self) -> Result<String, Box<dyn Error>> {
+        
+        let leaves = self.leaf_basis_hashing().await?;
+
+        let merkletree = RSMerkleTree::new(leaves.clone()).await?;
+
+        let persistentstorage = PersistentRsMerkle::new(None, Some(merkletree)).await?;
+
+        let root_hex = persistentstorage
+            .tree
+            .as_ref()
+            .ok_or("Merkle tree not found")?
+            .root_hex()
+            .ok_or("Could not retrieve Merkle root")?;
+        
+        println!("Transcient MID: {}", root_hex);
+        Ok(root_hex)
+    }
+
 
     // Leaves hashing
     async fn leaf_basis_hashing(&self) -> Result<Vec<[u8; 32]>, Box<dyn Error>> {

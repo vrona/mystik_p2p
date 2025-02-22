@@ -332,7 +332,8 @@ impl Client {
             .await
             .map_err(|e| anyhow!("GetProviders command failed to receive response: {}", e))?
     }
-    // TO DEL pub async fn get_providers(&mut self, file_name: String) -> Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError> {
+    // TO DEL
+    // pub async fn get_providers(&mut self, file_name: String) -> Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError> {
     //     let (sender, receiver) = oneshot::channel();
     //     self.sender
     //         .send(Command::GetProviders { file_name, sender })

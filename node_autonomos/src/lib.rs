@@ -2,7 +2,7 @@
 pub mod node_regular;
 use content_hashing::blakecheck;
 use tokio::time::Duration;
-use std::{pin::Pin, error::Error, path::PathBuf};
+use std::{pin::Pin, error::Error, path::PathBuf, collections::HashMap};
 use futures::{prelude::*, StreamExt};
 use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, rendezvous};
 use tracing_subscriber::EnvFilter;
@@ -81,7 +81,7 @@ impl AutonomosManager{
             }
             None => {
                 client
-                    .start_listening("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)
+                    .start_listening("/ip4/127.0.0.1/udp/0/quic-v1".parse()?)
                     .await
                     .expect("Listening not to fail.");
             }
@@ -181,40 +181,37 @@ impl AutonomosManager{
             addr.clone()
         } else {
 
-            tokio::time::sleep(Duration::from_secs(3)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
             
-            // Query providers for the file name.
-            let providers = self.client.get_providers(name.clone()).await?;
-            // println!("Attempt {}: Providers for {}: {:?}", attempts, name, providers);
-            
-            let mut provider_record: Option<Multiaddr> = None;
-
-            if !providers.is_empty() {
-                // Select the first provider.
-                let provider_peer_id = *providers.iter().next().unwrap();
-                println!("Found provider PeerId: {:?}", provider_peer_id);
-                
-                // Retrieve known addresses for that provider.
-            let remote_addr: Option<Multiaddr> = {
-                let mut event_loop_lock = self.event_loop.lock().await;
-                let known_addrs: Vec<Multiaddr> = event_loop_lock.get_peer_addresses(&provider_peer_id);
-   
-                // Convert the first known address into one containing the PeerId.
-                known_addrs.first().map(|addr| addr.clone().with(Protocol::P2p(provider_peer_id)))
-            };
-            
-            if let Some(addr) = remote_addr {
-                provider_record = Some(addr);
-            } else {
-                println!("No known addresses for provider {:?}; retrying...", provider_peer_id);
+            let provider_map: HashMap<PeerId, Vec<Multiaddr>> = self.client.get_providers(name.clone()).await?;
+            if provider_map.is_empty() {
+                println!("No providers found for file {}.", name);
+                return Err(format!("Could not find provider for file {}", name).into());
             }
-        } else {
-            println!("No providers found for file {}.", name);
-        }
-        // Return an error if no provider address was found.
-        provider_record.ok_or_else(|| format!("Could not find provider for file {}", name))?
-    };
 
+            // Select the first provider that has at least one address.
+            let (provider_peer_id, addrs) = provider_map.into_iter()
+                .find(|(_, addrs)| !addrs.is_empty())
+                .ok_or_else(|| format!("Could not find a provider with a known address for file {}", name))?;
+
+            println!("Found provider PeerId: {:?}", provider_peer_id);
+            println!("Known addresses: {:?}", addrs);
+
+            // Pick the first address and attach the peer ID (if not already attached).
+            let peer_addr = addrs.first()
+                .map(|addr| {
+                    if !addr.iter().any(|p| matches!(p, Protocol::P2p(_))) {
+                        addr.clone().with(Protocol::P2p(provider_peer_id))
+                    } else {
+                        addr.clone()
+                    }
+                })
+                .ok_or_else(|| format!("Provider {} has no addresses", provider_peer_id))?;
+            
+            
+            peer_addr
+        };
+         
         // Now, extract the PeerId from the full multiaddr.
         let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
             return Err("Determined peer address does not contain a PeerId.".into());
@@ -231,10 +228,10 @@ impl AutonomosManager{
             .get_providers(name.clone())
             .await?
             .into_iter()
-            .map(|p| {
+            .map(|(peer, _addrs)| {
                 let mut client_clone = self.client.clone();
                 let name = name.clone();
-                async move { client_clone.request_file(p, name).await }.boxed()
+                async move { client_clone.request_file(peer, name).await }.boxed()
             });
 
         let _ = futures::future::select_ok(requests)

@@ -5,7 +5,7 @@ use libp2p::kad::KBucketKey;
 
 use std::{
     collections::{hash_map, HashMap, HashSet}, // , error::Error as StdError
-    time::Duration,
+    //time::Duration,
     sync::Arc,
 };
 
@@ -36,7 +36,7 @@ use libp2p::{
 
 use libp2p_stream as stream;
 //use rand::RngCore;
-use tokio::{task::JoinHandle, sync::Mutex};
+use tokio::{task::JoinHandle, sync::Mutex, time::{self, Duration}};
 
 /// A custom protocol tag for our file-exchange streams.
 const FILE_PROTOCOL: StreamProtocol = StreamProtocol::new("/file-exchange/1");
@@ -132,7 +132,7 @@ enum Command {
     },
     GetProviders {
         file_name: String,
-        sender: oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>,
+        sender: oneshot::Sender<Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError>>,
     },
     Register{
         peer_id: PeerId,
@@ -317,17 +317,32 @@ impl Client {
     }
 
     /// Find providers for the given file on the DHT.
-    pub async fn get_providers(&mut self, file_name: String) -> Result<HashSet<PeerId>, AnyhowError> {
+    pub async fn get_providers(&mut self, file_name: String) -> Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError> {
+        // Create a oneshot channel to receive the provider map.
         let (sender, receiver) = oneshot::channel();
+
+        // Send the GetProviders command along with the sender half.
         self.sender
             .send(Command::GetProviders { file_name, sender })
             .await
             .map_err(|e| anyhow!("Failed to send GetProviders command: {}", e))?;
         
+        // Await the result from the event handler.
         receiver
             .await
             .map_err(|e| anyhow!("GetProviders command failed to receive response: {}", e))?
     }
+    // TO DEL pub async fn get_providers(&mut self, file_name: String) -> Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError> {
+    //     let (sender, receiver) = oneshot::channel();
+    //     self.sender
+    //         .send(Command::GetProviders { file_name, sender })
+    //         .await
+    //         .map_err(|e| anyhow!("Failed to send GetProviders command: {}", e))?;
+        
+    //     receiver
+    //         .await
+    //         .map_err(|e| anyhow!("GetProviders command failed to receive response: {}", e))?
+    // }
 
     // ------------------------------------------------------------------------
     // Below are simple examples of "stream-based" requests for a file.
@@ -362,7 +377,7 @@ pub struct EventLoop {
     pub actual_listen_addr: Arc<Mutex<Option<Multiaddr>>>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), AnyhowError>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), AnyhowError>>>,
-    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>>,
+    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError>>>,
     pending_register: HashMap<PeerId, (&'static str, oneshot::Sender<Result<(), AnyhowError>>)>,
 }
 
@@ -550,7 +565,11 @@ impl EventLoop {
                                     };
                                 
                                 println!("YOUR NEIGHBORS \n {} \n", address_with_p2p);
-                                self.swarm.dial(address_with_p2p).unwrap();
+                                //if let Err(e) =
+                                self.swarm.dial(address_with_p2p.clone()); //{
+                                //    tracing::error!("Dial failed: {}", e);
+                                //}
+                                self.swarm.behaviour_mut().kademlia.add_address(&peer, address_with_p2p);
                             }
                         }
                 },
@@ -582,7 +601,14 @@ impl EventLoop {
                 },
             )) => {
                 if let Some(sender) = self.pending_get_providers.remove(&id) {
-                    let _ = sender.send(Ok(providers));
+                    let mut provider_addrs = HashMap::new();
+                    // Iterate over the discovered providers and print their known addresses.
+                    for provider in &providers {
+                        let addrs = self.get_peer_addresses(provider);
+                        provider_addrs.insert(*provider, addrs.clone());
+                        tracing::info!("Provider {} has addresses: {:?}", provider, addrs);
+                    }
+                    let _ = sender.send(Ok(provider_addrs));
                     // Stop the query after first found set of providers.
                     self.swarm.behaviour_mut().kademlia.query_mut(&id).map(|mut q| q.finish());
                 }
@@ -617,14 +643,20 @@ impl EventLoop {
                             );
                         } else {
                             tracing::info!("Successfully registered with rendezvous node {}", peer_id);
-                            self.swarm.behaviour_mut().rendezvous.discover(Some(ns), None, None, peer_id);
+                            // Discard the result from the initial discovery call.
+                            let _initial_discovery = self.swarm.behaviour_mut().rendezvous.discover(
+                                Some(ns.clone()),
+                                None,
+                                None,
+                                peer_id,
+                            );
                             tracing::info!("Discovery query initiated on rendezvous node {}", peer_id);
-                            
                         }
-                        // Inform the pending dial command about the result of registration.
+                        
+                        // Inform the pending registration command about the result of registration.
                         let _ = reg_sender.send(register_result);
                     }
-                }            
+                }      
             }
             SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                 if let Some(peer_id) = peer_id {

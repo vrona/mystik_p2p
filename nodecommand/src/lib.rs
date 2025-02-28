@@ -186,7 +186,7 @@ pub async fn local_path_to_cid(mid_as_hex: &str)-> Result<PathBuf, Box<dyn Error
 // ╚╝╚═╩╩╩╩═╩═╩═╝
 
 // Remote Node - Ask for file
-pub async fn propose_cid_ntwk(file_name: &str, file_type: &str, secret: &str)-> Result<[u8;32], Box<dyn Error>> {
+pub async fn propose_mid_ntwk(file_name: &str, file_type: &str, secret: &str)-> Result<String, Box<dyn Error>> {
 
     // init the metadata
     let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
@@ -201,11 +201,11 @@ pub async fn propose_cid_ntwk(file_name: &str, file_type: &str, secret: &str)-> 
 
     // 1st level of Merkle (classic tree) get the metadata's MID
     let mid_as_key = hex_to_bytes::<32>(&metadata.create_tree(true).await?).await?;
-
+    let mid_as_hex = bytes_to_hex::<32>(mid_as_key).await;
     // 2nd level of Merkle (Sparse tree)
     // get the MID CID pair
     // let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
        
-    println!("mid_as_key propose_cid_ntwk: {:?}", mid_as_key);
-    Ok(mid_as_key)
+    println!("mid_as_key propose_cid_ntwk: {:?}", mid_as_hex);
+    Ok(mid_as_hex)
 }

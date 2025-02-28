@@ -12,8 +12,6 @@ use node_regular::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use metadata_mrkl::{MonoMetaTree, bytes_to_hex};
-
 pub struct AutonomosManager {
     pub client: Client,
     pub event_stream: Pin<Box<dyn Stream<Item = Event> + Send>>,
@@ -128,10 +126,12 @@ impl AutonomosManager{
             listen_address,
             peer,
         })
-    }    
+    } 
+
 
     pub async  fn spread_ntwk(&mut self, name: String) -> Result<(), Box<dyn Error>> {
-         // Advertise self as a provider of `name`.
+
+        // Advertise self as a provider of `name`.
         match self.client.start_providing(name.clone()).await {
             Ok(_) => {
                 tracing::debug!("Successfully started providing '{}'.", name);
@@ -177,24 +177,8 @@ impl AutonomosManager{
         }
     }
 
-    pub async fn midkey_to_cidhex_as_name(mid_as_key: [u8;32])-> Result<String, Box<dyn Error>> {
-        // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
-        let mut tree = MonoMetaTree::new()?;
-
-        // get the MID CID pair
-        if let Some(bytes_of_cid) = tree.get(&mid_as_key)?{
-            let cid_as_hex = bytes_to_hex::<32>(bytes_of_cid).await;
-
-            println!("cid test midkey_to_cidhex_as_name: {}", cid_as_hex);
-            return Ok(cid_as_hex)
-        };
-
-        Ok("Wrong MID or No CID founded".into())
-    }
-
-    pub async fn get_file(&mut self, mid_as_key: [u8;32]) -> Result<(), Box<dyn Error >>{
-
-        let name = Self::midkey_to_cidhex_as_name(mid_as_key).await?;
+    
+    pub async fn get_file(&mut self, name: String) -> Result<(), Box<dyn Error >>{
 
         let peer_addr = if let Some(addr) = &self.peer {
             addr.clone()

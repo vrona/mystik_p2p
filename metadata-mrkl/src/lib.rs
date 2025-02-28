@@ -186,11 +186,12 @@ impl MonoMetaTree {
 
         let storage_midcid = format!("{}", get_storage_midcid());
         
-        let newtree = Monotree::<Sled, Blake3>::new(&storage_midcid);
-
+        let mut newtree = Monotree::<Sled, Blake3>::new(&storage_midcid);
+        let head_root = newtree.get_headroot()?;
+        println!("Head_root {:?} at {}", head_root, storage_midcid.clone());
         Ok(MonoMetaTree{
             tree: newtree,
-            root: None,
+            root: head_root,
         })
     }
 

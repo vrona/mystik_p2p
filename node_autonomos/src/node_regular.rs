@@ -567,7 +567,7 @@ impl EventLoop {
                                 
                                 println!("YOUR NEIGHBORS \n {} \n", address_with_p2p);
                                 //if let Err(e) =
-                                self.swarm.dial(address_with_p2p.clone()); //{
+                                let _ = self.swarm.dial(address_with_p2p.clone()); //{
                                 //    tracing::error!("Dial failed: {}", e);
                                 //}
                                 self.swarm.behaviour_mut().kademlia.add_address(&peer, address_with_p2p);

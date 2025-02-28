@@ -195,7 +195,7 @@ async fn command_loop_syndesmos(
                 let nonce = parts[5];
                 match nodecommand::get_cid_file(file_name, file_type, secret).await {
                     Ok(returned_cid) => {
-                        println!("Debug: Returned CID: {:?}", returned_cid);
+                        println!("get - Debug: Returned CID: {:?}", returned_cid);
                         let decrypt_path = format!(
                             "/Volumes/vrona_SSD/rust_premiere/backup_old_mystik>p2p/data/dec/{}{}",
                             file_name, file_type
@@ -284,23 +284,30 @@ async fn command_loop_autonomos(
                 }
             }
             "call" => {
-                if parts.len() == 4 {
-                    let file_name = parts[1];
-                    let file_type = parts[2];
-                    let secret = parts[3];
-
-                    match nodecommand::propose_cid_ntwk(file_name, file_type, secret).await {
-                        
-                        Ok(returned_mid_key) => {
-                            println!("Debug: Returned CID: {:?}", returned_mid_key);
-                                    
-                            autonomos.get_file(returned_mid_key).await?;
-                            println!("File retrieved successfully.")
-                        }
-
-                        Err(e) => eprintln!("Error retrieving file: {}", e),
+                if parts.len() == 2 {
+                    // let file_name = parts[1];
+                    // let file_type = parts[2];
+                    // let secret = parts[3];
+                    let cid_as_hex = parts[1];
+                    match autonomos.get_file(cid_as_hex.to_string()).await
+                    {
+                        Ok(()) => println!("File transmitted successfully!"),
+                        Err(e) => eprintln!("Error transmitting file: {}", e),
                     }
                 }
+
+                //     match nodecommand::propose_mid_ntwk(file_name, file_type, secret).await {
+                        
+                //         Ok(returned_mid_hex) => {
+                //             println!("call - Debug: Returned CID: {:?}", returned_mid_hex);
+                                    
+                //             autonomos.get_file(returned_mid_hex).await?;
+                //             println!("File retrieved successfully.")
+                //         }
+
+                //         Err(e) => eprintln!("Error retrieving file: {}", e),
+                //     }
+                // }
             }
             "get" => {
                 println!("🔍 Raw Input: '{}'", input);
@@ -316,7 +323,7 @@ async fn command_loop_autonomos(
                 let nonce = parts[5];
                 match nodecommand::get_cid_file(file_name, file_type, secret).await {
                     Ok(returned_cid) => {
-                        println!("Debug: Returned CID: {:?}", returned_cid);
+                        println!("get - Debug: Returned CID: {:?}", returned_cid);
                         let decrypt_path = format!(
                             "/Volumes/vrona_SSD/rust_premiere/backup_old_mystik>p2p/data/dec/{}{}",
                             file_name, file_type

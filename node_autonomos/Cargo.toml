@@ -17,6 +17,7 @@ libp2p = { version = "0.54.1", features = [ "tokio", "cbor", "dns", "identify", 
 libp2p-stream = "0.2.0-alpha"
 rand = "0.8.5"
 tracing = "0.1.41"
+
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 content-hashing = { path = "../content-hashing" }
 metadata-mrkl   = { path = "../metadata-mrkl" }

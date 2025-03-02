@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Error as AnyhowError};
-use crate::blakecheck::receive_file_with_hash;
+use crate::blakecheck;
 // use std::io::Write;
 use libp2p::kad::KBucketKey;
 
@@ -784,7 +784,7 @@ impl EventLoop {
                                     let final_path = std::path::Path::new(&raw_final_path);
                                     tracing::debug!("Calling receive_file_with_hash for file: {:?}", final_path);
 
-                                    match receive_file_with_hash(reader, final_path).await {
+                                    match blakecheck::receive_file_with_hash(reader, final_path).await {
                                         Ok(_) => {
                                             tracing::debug!("File received successfully at {:?}", final_path);
                                             match std::fs::read(final_path) {

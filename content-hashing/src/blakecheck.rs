@@ -17,6 +17,7 @@ const CHUNK_SIZE: usize = 64 * 1024; // 16 KiB
 pub async fn send_file_with_hash<S>(
     mut stream: S,
     file_path: &Path,
+    cid: &str,
 ) -> Result<(), Error> where S: AsyncWriteExt + Unpin, {
 
     tracing::debug!("Launch@send_file_with_hash");
@@ -56,7 +57,15 @@ pub async fn send_file_with_hash<S>(
     let hash: Hash = hasher.finalize();
     stream.write_all(hash.as_bytes()).await?;
 
-    // 4) Close the stream (important!).
+    // 4) Append the CID
+    // Send CID length as 8-byte little-endian
+    let cid_bytes = cid.as_bytes();
+    let cid_length = cid_bytes.len() as u64;
+    stream.write_all(&cid_length.to_le_bytes()).await?;
+    // then send the actual CID
+    stream.write_all(cid_bytes).await?;
+
+    // 5) Close the stream (important!).
     stream.flush().await?;
     stream.close().await?;
 
@@ -118,5 +127,17 @@ pub async fn receive_file_with_hash<R>(
     }
 
     tracing::debug!("File received and verified successfully.");
+
+    // Step 4: Read the CID
+    let mut cid_len_buf = [0u8; 8];
+    reader.read_exact(&mut cid_len_buf).await?;
+    let cid_length = u64::from_le_bytes(cid_len_buf);
+    let mut cid_bytes = vec![0u8; cid_length as usize];
+    reader.read_exact(&mut cid_bytes).await?;
+    let cid = String::from_utf8(cid_bytes)
+        .map_err(|e| anyhow!("Invalid CID encoding: {:?}", e))?;
+
+    tracing::debug!("Received CID: {}", cid);
+    
     Ok(())
 }

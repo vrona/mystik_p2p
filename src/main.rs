@@ -163,7 +163,7 @@ async fn command_loop_syndesmos(
                          Ok(()) => println!("File spreaded on DHT successfully!"),
                         Err(e) => eprintln!("Error spreaded on DHT: {}", e),
                     }
-                    match syndesmos.provide_file(path, cid_as_hex.to_string()).await
+                    match syndesmos.provide_file(path, cid_as_hex.to_string(), cid_as_hex.to_string()).await
                     {
                         Ok(()) => println!("File transmitted successfully!"),
                         Err(e) => eprintln!("Error transmitting file: {}", e),
@@ -276,7 +276,7 @@ async fn command_loop_autonomos(
                          Ok(()) => println!("File spreaded on DHT successfully!"),
                         Err(e) => eprintln!("Error spreaded on DHT: {}", e),
                     }
-                    match autonomos.provide_file(path, cid_as_hex.to_string()).await
+                    match autonomos.provide_file(path, cid_as_hex.to_string(), cid_as_hex.to_string()).await
                     {
                         Ok(()) => println!("File transmitted successfully!"),
                         Err(e) => eprintln!("Error transmitting file: {}", e),

@@ -178,7 +178,7 @@ impl AutonomosManager{
     }
 
     
-    pub async fn get_file(&mut self, name: String) -> Result<(), Box<dyn Error >>{
+    pub async fn get_file(&mut self, name: String) -> Result<String, Box<dyn Error >>{
 
         let peer_addr = if let Some(addr) = &self.peer {
             addr.clone()
@@ -233,15 +233,29 @@ impl AutonomosManager{
             .map(|(peer, _addrs)| {
                 let mut client_clone = self.client.clone();
                 let name = name.clone();
-                async move { client_clone.request_file(peer, name).await }.boxed()
-            });
+                async move { 
+                   let result = client_clone.request_file(peer, name).await;
+                    match &result {
+                        Ok((file_bytes, cid)) => {
+                            tracing::debug!("Provider {} succeeded with CID: {}", peer, cid);
+                        }
+                        Err(e) => {
+                            tracing::debug!("Provider {} failed: {:?}", peer, e);
+                        }
+                    }
+                    result
+                }
+                .boxed()
+        });
 
-        let _ = futures::future::select_ok(requests)
+        // select_ok returns a tuple (Vec<u8>, String) where .0 is the successful result.
+        let (result, _remaining) = futures::future::select_ok(requests)
             .await
-            .map_err(|_| "None of the providers returned file.")?
-            .0;
+            .map_err(|_| "None of the providers returned file.")?;
         
-        Ok(())
+        let (_file_bytes, cid) = result;
+        
+        Ok(cid)
     }
 
     /// Register this node with a rendezvous server.

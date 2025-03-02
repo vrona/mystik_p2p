@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Error as AnyhowError};
+use tracing_subscriber::fmt::format;
 use crate::blakecheck;
 // use std::io::Write;
 use libp2p::kad::KBucketKey;
@@ -145,7 +146,7 @@ enum Command {
     RequestFile {
         peer: PeerId,
         file_name: String,
-        sender: oneshot::Sender<Result<Vec<u8>, AnyhowError>>,
+        sender: oneshot::Sender<Result<(Vec<u8>, String), AnyhowError>>,
     },
     // If you want a "RespondFile" command that *pushes* data, you can do something similar.
     // In that scenario, you'd open a substream as well from your side. Alternatively, you
@@ -360,7 +361,7 @@ impl Client {
         &mut self,
         peer: PeerId,
         file_name: String,
-    ) -> Result<Vec<u8>, AnyhowError> {
+    ) -> Result<(Vec<u8>, String), AnyhowError> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::RequestFile { peer, file_name, sender })
@@ -780,17 +781,20 @@ impl EventLoop {
 
                                     tracing::debug!("Write side of the stream successfully closed.");
 
-                                    let raw_final_path = format!("{}{}", get_storage_dir(), file_name);
-                                    let final_path = std::path::Path::new(&raw_final_path);
-                                    tracing::debug!("Calling receive_file_with_hash for file: {:?}", final_path);
+                                    let directory_path = format!("{}", get_storage_dir());
+                                    let dir_path = std::path::Path::new(&directory_path);
+                                    tracing::debug!("Calling receive_file_with_hash for file: {:?}", dir_path);
 
-                                    match blakecheck::receive_file_with_hash(reader, final_path).await {
-                                        Ok(_) => {
-                                            tracing::debug!("File received successfully at {:?}", final_path);
+                                    match blakecheck::receive_file_with_hash(reader, dir_path).await {
+                                        Ok(cid) => {
+                                            tracing::debug!("File received successfully at {:?}", dir_path);
+                                            
+                                            let final_path = format!("{}{}.bin", dir_path.display(), cid);
+
                                             match std::fs::read(final_path) {
                                                 Ok(file_bytes) => {
                                                     tracing::debug!("File read into memory successfully. Bytes: {}", file_bytes.len());
-                                                    Ok(file_bytes)
+                                                    Ok((file_bytes, cid))
                                                 }
                                                 Err(e) => {
                                                     //tracing::debug!("Failed to read file from disk: {e}");

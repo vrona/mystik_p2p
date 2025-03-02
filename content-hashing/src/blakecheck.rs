@@ -80,10 +80,11 @@ pub async fn send_file_with_hash<S>(
 pub async fn receive_file_with_hash<R>(
     mut reader: futures::io::ReadHalf<R>,
     output_path: &Path,
-) -> Result<(), Error> where R: AsyncReadExt + Unpin, {
+) -> Result<String, Error> where R: AsyncReadExt + Unpin, {
 
     // Prepare a file for writing.
-    let mut out_file = std::fs::File::create(output_path)?;
+    let temp_name_file = output_path.join("temp.bin");
+    let mut out_file = std::fs::File::create(&temp_name_file)?;
     let mut hasher = Hasher::new();
 
     // Step 1: Read the first 8 bytes to get the file length.
@@ -138,6 +139,11 @@ pub async fn receive_file_with_hash<R>(
         .map_err(|e| anyhow!("Invalid CID encoding: {:?}", e))?;
 
     tracing::debug!("Received CID: {}", cid);
+
+    // Step 5: rename temp file to output_path/cid.bin
+    let final_path = output_path.join(format!("{}.bin", cid));
+
+    std::fs::rename(&temp_name_file, &final_path)?;
     
-    Ok(())
+    Ok(cid)
 }

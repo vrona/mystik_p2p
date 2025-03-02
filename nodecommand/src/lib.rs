@@ -191,53 +191,28 @@ pub async fn propose_mid_ntwk(file_name: &str, file_type: &str, secret: &str)-> 
     // init the metadata
     let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
 
-    // prooving that metadata exist    
-    // let leaves: &[&str] = &[file_name, file_type, secret];
-    // let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
-
-    // if ! meta_exist{
-    //     return Err("Given metadata are not matching records".into());
-    // }
-
     // 1st level of Merkle (classic tree) get the metadata's MID
     let mid_as_key = hex_to_bytes::<32>(&metadata.create_tree(true).await?).await?;
-    let mid_as_hex = bytes_to_hex::<32>(mid_as_key).await;
-    // 2nd level of Merkle (Sparse tree)
-    // get the MID CID pair
-    // let cid_as_hex = midkey_to_cidhex(mid_as_key).await?;
-       
-    println!("mid_as_key propose_cid_ntwk: {:?}", mid_as_hex);
-    Ok(mid_as_hex)
-}
 
-pub async fn import_file(file_name: &str, file_type: &str, secret: &str, file_path: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
-
-    // create private key and nonce for file encryption/decryption
-    let (private_key, nonce) = newkey().await?;
-
-    // get the file's CID
-    let cid_as_hex = encrypt_file(&private_key, &nonce, file_path).await?; //"../ghost-ground/data/mystikp2p.png"
-    println!("CID stored for test: {}", cid_as_hex);
-
-    // init the metadata
-    let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
-
-    // 1st level of Merkle (classic tree) get the metadata's MID
-    let mid_as_hex = &metadata
-        .create_tree(true)
-        .await?;
-
-    let mid_as_key  = hex_to_bytes::<32>(&mid_as_hex)
-        .await?;
-    
     // prooving that metadata exist    
     let leaves: &[&str] = &[file_name, file_type, secret];
     let meta_exist = metadata.prove_leaf_persistent(leaves).await?;
 
     if ! meta_exist{
-        return Err("Given metadata are not stored in record".into());
+        return Err("Given metadata are not matching records".into());
     }
 
+    let mid_as_hex = bytes_to_hex::<32>(mid_as_key).await;
+   
+    println!("mid_as_key propose_cid_ntwk: {:?}", mid_as_hex);
+    Ok(mid_as_hex)
+}
+
+pub async fn import_ntwk_file(mid_as_hex: &str, cid_as_hex: &str) -> Result<(), Box<dyn Error>> {
+
+    let mid_as_key  = hex_to_bytes::<32>(&mid_as_hex)
+        .await?;
+    
     // 2nd level of Merkle (Sparse tree)
     // init tree (Monotree) instance with the persistent database (rocksdb) and hasher (blake3)
     let mut tree = MonoMetaTree::new()?;
@@ -253,13 +228,8 @@ pub async fn import_file(file_name: &str, file_type: &str, secret: &str, file_pa
         return Err("MID-CID pair not stored in record".into());
     }
 
-    let hex_key = bytes_to_hex::<32>(private_key).await;
-    println!("TEST 🔑 private_key: {:?}", hex_key);
-    let hex_nonce = bytes_to_hex::<19>(nonce).await;
-    print!("\n");
-    println!("TEST 🔢 nonce: {:?}", hex_nonce);
-    print!("\n");
-    println!("TEST //MID//\n mid_as_key: {:?}\nmid_as_hex: {:?}", mid_as_key, mid_as_hex);
-    
-    return  Ok((private_key, nonce, mid_as_key));
+    let saving_confirmation = format!("Imported file well saved:\nMID: {}\nCID: {}", mid_as_hex, cid_as_hex);
+    print!("{}", saving_confirmation);
+
+    return  Ok(());
 }

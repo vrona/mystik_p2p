@@ -271,12 +271,12 @@ async fn command_loop_autonomos(
                     let mid_as_hex = parts[1];
                     let path = nodecommand::local_path_to_cid(mid_as_hex).await?;
                     let cid_as_hex = nodecommand::midhex_to_cidhex(mid_as_hex).await?;
-                    match autonomos.spread_ntwk(cid_as_hex.to_string()).await
+                    match autonomos.spread_ntwk(mid_as_hex.to_string()).await
                     {
                          Ok(()) => println!("File spreaded on DHT successfully!"),
                         Err(e) => eprintln!("Error spreaded on DHT: {}", e),
                     }
-                    match autonomos.provide_file(path, cid_as_hex.to_string(), cid_as_hex.to_string()).await
+                    match autonomos.provide_file(path, mid_as_hex.to_string(), cid_as_hex.to_string()).await
                     {
                         Ok(()) => println!("File transmitted successfully!"),
                         Err(e) => eprintln!("Error transmitting file: {}", e),
@@ -284,30 +284,36 @@ async fn command_loop_autonomos(
                 }
             }
             "call" => {
-                if parts.len() == 2 {
-                    // let file_name = parts[1];
-                    // let file_type = parts[2];
-                    // let secret = parts[3];
-                    let cid_as_hex = parts[1];
-                    match autonomos.get_file(cid_as_hex.to_string()).await
-                    {
-                        Ok(()) => println!("File transmitted successfully!"),
-                        Err(e) => eprintln!("Error transmitting file: {}", e),
+                if parts.len() == 4 {
+                    let file_name = parts[1];
+                    let file_type = parts[2];
+                    let secret = parts[3];
+
+                    match nodecommand::propose_mid_ntwk(file_name, file_type, secret).await {
+                        
+                        Ok(returned_mid_hex) => {
+                            println!("call - Debug: Returned MID: {:?}", returned_mid_hex);
+                                    
+                            match autonomos.get_file(returned_mid_hex.clone()).await
+                            {
+                                Ok(cid_as_hex) => {
+                                    println!("File transmitted successfully!");
+                                
+                                match  nodecommand::import_ntwk_file(&returned_mid_hex, &cid_as_hex).await
+                                {
+                                    Ok(()) => println!("Remote file imported successfully!"),
+                                    Err(e) => eprintln!("Error importing file: {}", e),
+                                }
+                            }
+                                Err(e) => eprintln!("Error transmitting file: {}", e),
+                            }
+
+                            
+                        }
+
+                        Err(e) => eprintln!("Error retrieving file: {}", e),
                     }
                 }
-
-                //     match nodecommand::propose_mid_ntwk(file_name, file_type, secret).await {
-                        
-                //         Ok(returned_mid_hex) => {
-                //             println!("call - Debug: Returned CID: {:?}", returned_mid_hex);
-                                    
-                //             autonomos.get_file(returned_mid_hex).await?;
-                //             println!("File retrieved successfully.")
-                //         }
-
-                //         Err(e) => eprintln!("Error retrieving file: {}", e),
-                //     }
-                // }
             }
             "get" => {
                 println!("🔍 Raw Input: '{}'", input);

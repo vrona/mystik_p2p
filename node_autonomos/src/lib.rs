@@ -143,7 +143,7 @@ impl AutonomosManager{
         Ok(())
     }
 
-    pub async fn provide_file(&mut self, path: PathBuf, name: String, cid: String) -> Result<(), Box<dyn Error>> {
+    pub async fn answer_inbound_request(&mut self, path: PathBuf, name: String, cid: String) -> Result<(), Box<dyn Error>> {
 
         // Loop and respond to inbound file requests that match `name`.
         loop {

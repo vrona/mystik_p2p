@@ -276,7 +276,7 @@ async fn command_loop_autonomos(
                          Ok(()) => println!("File spreaded on DHT successfully!"),
                         Err(e) => eprintln!("Error spreaded on DHT: {}", e),
                     }
-                    match autonomos.provide_file(path, mid_as_hex.to_string(), cid_as_hex.to_string()).await
+                    match autonomos.answer_inbound_request(path, mid_as_hex.to_string(), cid_as_hex.to_string()).await
                     {
                         Ok(()) => println!("File transmitted successfully!"),
                         Err(e) => eprintln!("Error transmitting file: {}", e),
@@ -301,7 +301,7 @@ async fn command_loop_autonomos(
                                 
                                 match  nodecommand::import_ntwk_file(&returned_mid_hex, &cid_as_hex).await
                                 {
-                                    Ok(()) => println!("Remote file imported successfully!"),
+                                    Ok(()) => println!("!"),
                                     Err(e) => eprintln!("Error importing file: {}", e),
                                 }
                             }

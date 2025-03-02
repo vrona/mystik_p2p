@@ -17,7 +17,6 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
 
     // get the file's CID
     let cid_as_hex = encrypt_file(&private_key, &nonce, file_path).await?; //"../ghost-ground/data/mystikp2p.png"
-    println!("CID stored for test: {}", cid_as_hex);
 
     // init the metadata
     let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
@@ -54,12 +53,12 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
     }
 
     let hex_key = bytes_to_hex::<32>(private_key).await;
-    println!("TEST 🔑 private_key: {:?}", hex_key);
+    println!("🔑 private_key: {:?}", hex_key);
     let hex_nonce = bytes_to_hex::<19>(nonce).await;
     print!("\n");
-    println!("TEST 🔢 nonce: {:?}", hex_nonce);
+    println!("🔢 nonce: {:?}", hex_nonce);
     print!("\n");
-    println!("TEST //MID//\n mid_as_key: {:?}\nmid_as_hex: {:?}", mid_as_key, mid_as_hex);
+    println!("mid_as_hex: {:?}", mid_as_hex);
     
     return  Ok((private_key, nonce, mid_as_key));
 }
@@ -73,7 +72,6 @@ pub async  fn midkey_to_cidhex(mid_as_key: [u8;32])-> Result<String, Box<dyn Err
     if let Some(bytes_of_cid) = tree.get(&mid_as_key)?{
         let cid_as_hex = bytes_to_hex::<32>(bytes_of_cid).await;
 
-        println!("cid test midkey_to_cidhex: {}", cid_as_hex);
         return Ok(cid_as_hex)
     };
 
@@ -91,7 +89,6 @@ pub async  fn midhex_to_cidhex(mid_as_hex: &str)-> Result<String, Box<dyn Error>
     if let Some(bytes_of_cid) = tree.get(&mid_as_key)?{
         let cid_as_hex = bytes_to_hex::<32>(bytes_of_cid).await;
 
-        println!("cid test midhex_to_cidhex: {}", cid_as_hex);
         return Ok(cid_as_hex)
     };
 

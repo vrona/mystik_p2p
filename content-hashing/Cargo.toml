@@ -16,7 +16,7 @@ libp2p = "0.54.1"
 multihash = "0.19.3"
 multihash-codetable = {version = "0.1.4", features = ["sha2"]}
 rand = "0.8.5"
-tokio = { version = "1.42.0", features = ["full"] }
+tokio = { version = "1.42.0", features = ["fs", "io-util", "full"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 typenum = "1.17.0"

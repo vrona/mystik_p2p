@@ -355,6 +355,6 @@ async fn command_loop_autonomos(
                    | exit)");
     }
     // Keep the node running indefinitely.
-        pending::<()>().await;
+    pending::<()>().await;
     Ok(())
 }

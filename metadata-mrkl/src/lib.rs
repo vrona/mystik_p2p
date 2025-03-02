@@ -213,8 +213,8 @@ impl MonoMetaTree {
 
     // get (or find) a leaf or a leaf for a given leaf from the tree
     pub fn get(&mut self, key: &[u8; 32]) -> MonoTResult<Option<[u8; 32]>> {
-        self.root = self.tree.get_headroot()?;
-        match self.tree.get(self.root.as_ref(), &key)? {
+        let root = self.tree.get_headroot()?;
+        match self.tree.get(root.as_ref(), &key)? {
             Some(leaf) => Ok(Some(leaf)),
             None => Err(Errors::new(&format!("Failed to get leaf{:?}", key))),
         }
@@ -222,8 +222,8 @@ impl MonoMetaTree {
 
     // generate the Merkle proof for the root and the key
     pub fn proof(&mut self, key: &[u8; 32]) -> MonoTResult<Option<Vec<(bool, Vec<u8>)>>> {
-        self.root = self.tree.get_headroot()?;
-        let proof = self.tree.get_merkle_proof(self.root.as_ref(), key)?;
+        let root = self.tree.get_headroot()?;
+        let proof = self.tree.get_merkle_proof(root.as_ref(), key)?;
         return Ok(proof)
     }
 

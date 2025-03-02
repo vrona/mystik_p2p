@@ -11,7 +11,7 @@ use tracing::debug;
 use node_regular::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
+use tokio_util::compat::FuturesAsyncWriteCompatExt; // try to make compatibility between tokio and libp2p stream
 pub struct AutonomosManager {
     pub client: Client,
     pub event_stream: Pin<Box<dyn Stream<Item = Event> + Send>>,
@@ -156,7 +156,11 @@ impl AutonomosManager{
                         tracing::debug!("Inbound request from {peer} matched our file '{file_name}'. Calling send_file_with_hash now!");
                             // 1) We want to send that file in chunks with BLAKE3 verification.
                         // So we call chunkblake::send_file_with_hash:
-                        match blakecheck::send_file_with_hash(stream, &path, &cid).await {
+                        // convertion stream (lipp2p) to tokio
+                        let (_reader, writer) = stream.split();
+                        let writer = writer.compat_write();
+                        
+                        match blakecheck::send_file_with_hash(writer, &path, &cid).await {
                             Ok(()) => {
                                 tracing::debug!("Sent file {} to peer {:?}", name, peer);
                             }

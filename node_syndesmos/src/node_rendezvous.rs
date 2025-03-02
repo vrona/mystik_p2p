@@ -36,7 +36,7 @@ use libp2p::{
 use libp2p_stream as stream;
 //use rand::RngCore;
 use tokio::task::JoinHandle;
-
+use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt}; // try to make compatibility between tokio and libp2p stream
 /// A custom protocol tag for our file-exchange streams.
 const FILE_PROTOCOL: StreamProtocol = StreamProtocol::new("/file-exchange/1");
 
@@ -583,6 +583,8 @@ impl EventLoop {
                             // Split the stream into read and write halves
                             let (reader, mut writer) = stream.split();
 
+                            // Conversion from libp2p to tokio
+                            let reader = reader.compat(); 
                             if let Err(e) = writer.write_all(file_name.as_bytes()).await {
                                 //tracing::debug!("Failed to write file name to stream: {e}");
                                 Err(anyhow!("Failed to write file name to stream: {}", e))

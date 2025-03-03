@@ -1,5 +1,5 @@
 
-pub mod node_regular;
+pub mod autonomos;
 use content_hashing::blakecheck;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf, collections::HashMap};
@@ -8,7 +8,7 @@ use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, rendezvous};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
 use tracing::debug; 
-use node_regular::{Client, Event, EventLoop};
+use autonomos::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt; // try to make compatibility between tokio and libp2p stream
@@ -37,7 +37,7 @@ impl AutonomosManager{
             mut client,
             event_stream,
             composite_event_loop,
-        ) = node_regular::new(secret_seed).await?;
+        ) = autonomos::new(secret_seed).await?;
         
         // let event_loop = Arc::new(Mutex::new(composite_event_loop));
 
@@ -149,7 +149,7 @@ impl AutonomosManager{
         loop {
             tracing::debug!("Waiting for inbound file requests...");
             match self.event_stream.next().await {
-                Some(node_regular::Event::InboundFileRequest { peer, file_name, stream }) => {
+                Some(autonomos::Event::InboundFileRequest { peer, file_name, stream }) => {
                     // 1. check if the requested file name matches our `name`.
                     tracing::debug!("Lib.rs checks: {} {}", file_name, name);
                     if file_name == *name {

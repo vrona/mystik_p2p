@@ -1,5 +1,5 @@
 
-pub mod node_rendezvous;
+pub mod syndesmos;
 use content_hashing::blakecheck;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf};
@@ -8,7 +8,7 @@ use libp2p::{core::Multiaddr, multiaddr::Protocol};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
 
-use node_rendezvous::{Client, Event, EventLoop};
+use syndesmos::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt; // try to make compatibility between tokio and libp2p stream
@@ -33,7 +33,7 @@ impl SyndesmosManager{
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
-        let (mut client, event_stream, composite_event_loop) = node_rendezvous::new(secret_seed).await?;
+        let (mut client, event_stream, composite_event_loop) = syndesmos::new(secret_seed).await?;
         
         let event_loop = Arc::new(Mutex::new(composite_event_loop));
 
@@ -105,7 +105,7 @@ impl SyndesmosManager{
         loop {
             tracing::debug!("Waiting for inbound file requests...");
             match self.event_stream.next().await {
-                Some(node_rendezvous::Event::InboundFileRequest { peer, file_name, stream }) => {
+                Some(syndesmos::Event::InboundFileRequest { peer, file_name, stream }) => {
                     // 1. check if the requested file name matches our `name`.
                     tracing::debug!("Lib.rs checks: {} {}", file_name, name);
                     if file_name == *name {

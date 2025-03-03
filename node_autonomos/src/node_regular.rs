@@ -5,7 +5,7 @@ use crate::blakecheck;
 use libp2p::kad::KBucketKey;
 
 use std::{
-    collections::{hash_map, HashMap, HashSet}, // , error::Error as StdError
+    collections::{hash_map, HashMap, HashSet},
     //time::Duration,
     sync::Arc,
 };
@@ -39,7 +39,7 @@ use libp2p_stream as stream;
 //use rand::RngCore;
 use tokio::{task::JoinHandle, sync::Mutex, time::{self, Duration}};
 
-use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt}; // try to make compatibility between tokio and libp2p stream
+use tokio_util::compat::FuturesAsyncReadCompatExt; // try to make compatibility between tokio and libp2p stream
 
 /// A custom protocol tag for our file-exchange streams.
 const FILE_PROTOCOL: StreamProtocol = StreamProtocol::new("/file-exchange/1");
@@ -335,18 +335,6 @@ impl Client {
             .await
             .map_err(|e| anyhow!("GetProviders command failed to receive response: {}", e))?
     }
-    // TO DEL
-    // pub async fn get_providers(&mut self, file_name: String) -> Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError> {
-    //     let (sender, receiver) = oneshot::channel();
-    //     self.sender
-    //         .send(Command::GetProviders { file_name, sender })
-    //         .await
-    //         .map_err(|e| anyhow!("Failed to send GetProviders command: {}", e))?;
-        
-    //     receiver
-    //         .await
-    //         .map_err(|e| anyhow!("GetProviders command failed to receive response: {}", e))?
-    // }
 
     // ------------------------------------------------------------------------
     // Below are simple examples of "stream-based" requests for a file.
@@ -383,6 +371,7 @@ pub struct EventLoop {
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), AnyhowError>>>,
     pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError>>>,
     pending_register: HashMap<PeerId, (&'static str, oneshot::Sender<Result<(), AnyhowError>>)>,
+    pending_periodic_discovery: HashMap<PeerId, rendezvous::Namespace>,
 }
 
 impl EventLoop {
@@ -402,6 +391,7 @@ impl EventLoop {
             pending_start_providing: Default::default(),
             pending_get_providers: Default::default(),
             pending_register: Default::default(),
+            pending_periodic_discovery: Default::default(),
         }
     }
 
@@ -441,17 +431,35 @@ impl EventLoop {
             }
         });
 
+        // periodic discovery interval.
+        let mut discovery_interval = time::interval(Duration::from_secs(5));
+        
         loop {
             tokio::select! {
                 // Drive the swarm forward.
                 event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(event).await;
-                }
+                },
+
                 // Handle user commands.
                 cmd = self.command_receiver.next() => match cmd {
                     Some(c) => self.handle_command(c).await,
                     None => return, // channel closed => shutdown
                 },
+
+                // periodic discovery
+                _ = discovery_interval.tick() => {
+                    // iterate over all registrated periodic discovery entries.
+                    for (&peer_id, ns) in &self.pending_periodic_discovery {
+                        let _periodic_discovery = self.swarm.behaviour_mut().rendezvous.discover(
+                                Some(ns.clone()),
+                                None,
+                                None,
+                                peer_id,
+                            );
+                            tracing::info!("Periodic discovery query initiated on rendezvous node {}", peer_id);
+                    }
+                }
             }
         }
     }
@@ -655,6 +663,9 @@ impl EventLoop {
                                 peer_id,
                             );
                             tracing::info!("Discovery query initiated on rendezvous node {}", peer_id);
+
+                            // Store for periodic discovery.
+                            self.pending_periodic_discovery.insert(peer_id, ns);
                         }
                         
                         // Inform the pending registration command about the result of registration.
@@ -826,5 +837,3 @@ impl EventLoop {
         }
     }
 }
-
-

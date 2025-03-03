@@ -576,7 +576,7 @@ impl EventLoop {
                                         address.clone()
                                     };
                                 
-                                println!("YOUR NEIGHBORS \n {} \n", address_with_p2p);
+                                //println!("YOUR NEIGHBORS \n {} \n", address_with_p2p);
                                 //if let Err(e) =
                                 let _ = self.swarm.dial(address_with_p2p.clone()); //{
                                 //    tracing::error!("Dial failed: {}", e);

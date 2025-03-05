@@ -802,6 +802,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "db-access"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "hex",
+ "metadata-mrkl",
+ "regex",
+ "sled",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "der"
 version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2490,6 +2504,7 @@ dependencies = [
  "blake3",
  "clap",
  "content-hashing",
+ "db-access",
  "futures",
  "libp2p",
  "libp2p-stream",

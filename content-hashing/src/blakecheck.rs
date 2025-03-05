@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, Result, Error};
 use std::io::Read;
 use std::path::Path;
 use blake3::{Hash, Hasher};
@@ -22,11 +22,11 @@ pub async fn send_file_with_hash<S>(
     cid: &str,
 ) -> Result<(), Error> where S: AsyncWriteExt + Unpin, {
 
-    tracing::debug!("Launch@send_file_with_hash");
+    //tracing::debug!("Launch@send_file_with_hash");
 
     // Open the file (blocking std I/O for demo).
     let mut file = File::open(file_path).await?;
-    tracing::debug!("ChunkBlake file \nSEND\nFile path {:?}", file_path);
+    //tracing::debug!("ChunkBlake file \nSEND\nFile path {:?}", file_path);
     
     // Compute total size (so we can write it up front).
     let metadata = file.metadata().await?;
@@ -43,7 +43,7 @@ pub async fn send_file_with_hash<S>(
     let mut remaining = file_len;
 
     while remaining > 0 {
-        tracing::debug!("ChunkBlake file \nSEND\nFile length remaining {}\n hasher {:?}", remaining, hasher);
+        //tracing::debug!("ChunkBlake file \nSEND\nFile length remaining {}\n hasher {:?}", remaining, hasher);
         let to_read = CHUNK_SIZE.min(remaining as usize);
         let n = file.read(&mut buffer[..to_read]).await?;
         if n == 0 {
@@ -71,6 +71,8 @@ pub async fn send_file_with_hash<S>(
     stream.flush().await?;
     stream.shutdown().await?;
 
+    //tracing::debug!("Send file with hash is shuted down");
+
     Ok(())
 }
 
@@ -93,7 +95,7 @@ pub async fn receive_file_with_hash<R>(
     let mut len_buf = [0u8; 8];
     reader.read_exact(&mut len_buf).await?;
     let file_len = u64::from_le_bytes(len_buf);
-    tracing::debug!("Expected file length: {}", file_len);
+    //tracing::debug!("Expected file length: {}", file_len);
 
     // Step 2: Read the file content based on the file length.
     let mut remaining = file_len;
@@ -107,10 +109,7 @@ pub async fn receive_file_with_hash<R>(
         out_file.write_all(&buffer[..n]).await?;
         hasher.update(&buffer[..n]);
         remaining -= n as u64;
-        tracing::debug!(
-            "Received {} bytes, {} bytes remaining.",
-            n, remaining
-        );
+        //tracing::debug!("Received {} bytes, {} bytes remaining.", n, remaining);
     }
 
     // Step 3: Read the final 32 bytes as the BLAKE3 hash.
@@ -121,15 +120,15 @@ pub async fn receive_file_with_hash<R>(
     // Compute the hash of the received data.
     let computed_hash = hasher.finalize();
 
-    tracing::debug!("Received hash: {:?}", received_hash);
-    tracing::debug!("Computed hash: {:?}", computed_hash);
+    //tracing::debug!("Received hash: {:?}", received_hash);
+    //tracing::debug!("Computed hash: {:?}", computed_hash);
 
     // Verify the integrity of the received file.
     if computed_hash != received_hash {
         return Err(anyhow!("Hash mismatch! File integrity compromised."));
     }
 
-    tracing::debug!("File received and verified successfully.");
+    //tracing::debug!("File received and verified successfully.");
 
     // Step 4: Read the CID
     let mut cid_len_buf = [0u8; 8];
@@ -140,7 +139,7 @@ pub async fn receive_file_with_hash<R>(
     let cid = String::from_utf8(cid_bytes)
         .map_err(|e| anyhow!("Invalid CID encoding: {:?}", e))?;
 
-    tracing::debug!("Received CID: {}", cid);
+    //tracing::debug!("Received CID: {}", cid);
 
     // Step 5: rename temp file to output_path/cid.bin
     let final_path = output_path.join(format!("{}.bin", cid));

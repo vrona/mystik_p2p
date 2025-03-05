@@ -9,7 +9,8 @@ members = [
     "metadata-mrkl",
     "nodecommand",
     "node_autonomos",
-     "node_syndesmos",
+    "node_syndesmos",
+    "db-access",
     "phantomg",
     "phantoms",
 ]

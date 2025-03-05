@@ -192,7 +192,7 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
         .with_quic()
         .with_behaviour(|key| {
             let relay_behaviour = relay::Behaviour::new(key.public().to_peer_id(), Default::default());
-            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(1)));
+            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(30)));
             let identify_behaviour = identify::Behaviour::new(identify::Config::new("/composite/0.1.0".to_string(), key.public()));
             let store = kad::store::MemoryStore::new(key.public().to_peer_id());
             let mut kademlia_behaviour = kad::Behaviour::new(peer_id, store);
@@ -411,7 +411,7 @@ impl EventLoop {
         // a dedicated loop is often clearer.
         let mut incoming = match self.swarm.behaviour().stream.new_control().accept(FILE_PROTOCOL) {
             Ok(incoming) => {
-            tracing::debug!("Successfully accepted FILE_PROTOCOL streams.");
+            //tracing::debug!("Successfully accepted FILE_PROTOCOL streams.");
             incoming
         }
         Err(e) => {
@@ -432,7 +432,7 @@ impl EventLoop {
         });
 
         // periodic discovery interval.
-        let mut discovery_interval = time::interval(Duration::from_secs(5));
+        let mut discovery_interval = time::interval(Duration::from_secs(20));
         
         loop {
             tokio::select! {
@@ -524,7 +524,7 @@ impl EventLoop {
         match event {
 
             SwarmEvent::Behaviour(CompositeEvent::Rendezvous(event)) => {
-                tracing::debug!("Rendezvous client event: {:?}", event);
+                //tracing::debug!("Rendezvous client event: {:?}", event);
      
                match event { 
                     rendezvous::client::Event::Registered {
@@ -542,12 +542,12 @@ impl EventLoop {
                         namespace,
                         error,
                     } => {
-                        tracing::error!(
-                            "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
-                        rendezvous_node,
-                        namespace,
-                        error
-                    );
+                    //     tracing::error!(
+                    //         "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
+                    //     rendezvous_node,
+                    //     namespace,
+                    //     error
+                    // );
                     },
                     rendezvous::client::Event::Discovered {
                         registrations,
@@ -561,10 +561,10 @@ impl EventLoop {
                             for address in registration.record.addresses() {
 
                                 let peer = registration.record.peer_id();
-                                tracing::info!(%peer, %address, "Discovered peer");
+                                //tracing::info!(%peer, %address, "Discovered peer");
 
                                 if peer == local_peer_id {
-                                    tracing::info!(%peer, "Skipping dialing self");
+                                    //tracing::info!(%peer, "Skipping dialing self");
                                     continue;
                                 }
 
@@ -618,7 +618,7 @@ impl EventLoop {
                     for provider in &providers {
                         let addrs = self.get_peer_addresses(provider);
                         provider_addrs.insert(*provider, addrs.clone());
-                        tracing::info!("Provider {} has addresses: {:?}", provider, addrs);
+                        //tracing::info!("Provider {} has addresses: {:?}", provider, addrs);
                     }
                     let _ = sender.send(Ok(provider_addrs));
                     // Stop the query after first found set of providers.
@@ -654,7 +654,7 @@ impl EventLoop {
                                 error
                             );
                         } else {
-                            tracing::info!("Successfully registered with rendezvous node {}", peer_id);
+                            //tracing::info!("Successfully registered with rendezvous node {}", peer_id);
                             // Discard the result from the initial discovery call.
                             let _initial_discovery = self.swarm.behaviour_mut().rendezvous.discover(
                                 Some(ns.clone()),
@@ -662,7 +662,7 @@ impl EventLoop {
                                 None,
                                 peer_id,
                             );
-                            tracing::info!("Discovery query initiated on rendezvous node {}", peer_id);
+                            //tracing::info!("Discovery query initiated on rendezvous node {}", peer_id);
 
                             // Store for periodic discovery.
                             self.pending_periodic_discovery.insert(peer_id, ns);
@@ -772,8 +772,8 @@ impl EventLoop {
                 let res =
                     match open_result {
                         Ok(stream) => {
-                            tracing::debug!("Successfully opened stream to peer: {}", peer);
-                            tracing::debug!("Writing file name '{}' to the stream...", file_name);
+                            // tracing::debug!("Successfully opened stream to peer: {}", peer);
+                            // tracing::debug!("Writing file name '{}' to the stream...", file_name);
 
                             // Split the stream into read and write halves
                             let (reader, mut writer) = stream.split();
@@ -786,7 +786,7 @@ impl EventLoop {
 
                             } else {
 
-                                tracing::debug!("Written file name '{}' to stream.", file_name);
+                                // tracing::debug!("Written file name '{}' to stream.", file_name);
                                 // 2) Shutdown the write side to signal EOF
                                 if let Err(e) = writer.flush().await {
                                     //tracing::debug!("Failed to shutdown write half of the stream: {e}");
@@ -795,21 +795,21 @@ impl EventLoop {
                                 } else {
                                     writer.close().await.unwrap();
 
-                                    tracing::debug!("Write side of the stream successfully closed.");
+                                    //tracing::debug!("Write side of the stream successfully closed.");
 
                                     let directory_path = format!("{}", get_storage_dir());
                                     let dir_path = std::path::Path::new(&directory_path);
-                                    tracing::debug!("Calling receive_file_with_hash for file: {:?}", dir_path);
+                                    //tracing::debug!("Calling receive_file_with_hash for file: {:?}", dir_path);
 
                                     match blakecheck::receive_file_with_hash(reader, dir_path).await {
                                         Ok(cid) => {
-                                            tracing::debug!("File received successfully at {:?}", dir_path);
+                                            //tracing::debug!("File received successfully at {:?}", dir_path);
                                             
                                             let final_path = format!("{}{}.bin", dir_path.display(), cid);
 
                                             match std::fs::read(final_path) {
                                                 Ok(file_bytes) => {
-                                                    tracing::debug!("File read into memory successfully. Bytes: {}", file_bytes.len());
+                                                    //tracing::debug!("File read into memory successfully. Bytes: {}", file_bytes.len());
                                                     Ok((file_bytes, cid))
                                                 }
                                                 Err(e) => {
@@ -827,7 +827,7 @@ impl EventLoop {
                             }
                         }
                         Err(e) => {
-                            tracing::debug!("Failed to open stream to peer {}: {e}", peer);
+                            // tracing::debug!("Failed to open stream to peer {}: {e}", peer);
                             Err(anyhow!("Failed to open stream to peer {}: {}", peer, e))
                         }
                     };

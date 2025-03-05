@@ -2,9 +2,10 @@
 
 mod node_config; // Our configuration module
 
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 use std::io::{self, BufRead, Write};
-use tokio::time::{sleep, Duration};
+use tokio::{sync::Mutex, time::{sleep, Duration}};
+
 use libp2p::Multiaddr;
 use tracing_subscriber::EnvFilter;
 use futures::{future::pending, Stream};
@@ -14,6 +15,19 @@ use node_syndesmos::SyndesmosManager; // This crate implements the rendezvous (s
 
 // Optionally, also import your node command functions.
 use nodecommand;
+
+// prompt the command
+fn print_prompt_command() -> io::Result<()>{
+    println!(
+            "Enter command: (store <file_name> <file_type> <secret> <file_path>\
+            | spread <mid (metadata id)>\
+            | call <file_name> <file_type> <secret>\
+            | get <file_name> <file_type> <secret> <private_key> <nonce>\
+            | exit)"
+        );
+    io::stdout().flush()
+}
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -68,7 +82,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         } else if choice == "2" {
 
             // Load configuration from our node_config module.
-        let config = node_config::load_node_config("2")?;
+            let config = node_config::load_node_config("2")?;
 
             let listen_address: Option<Multiaddr> = None;
             // For simplicity we use None for bootstrap/peer here.
@@ -76,28 +90,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             println!("Launching Autonomos (Regular Node)...");
 
-            let mut autonomos_node =
-                node_autonomos::AutonomosManager::new(config.secret_seed, listen_address.clone(), peer).await?;
+            // let mut autonomos_node = node_autonomos::AutonomosManager::new(config.secret_seed, listen_address.clone(), peer).await?;
+            let autonomos_node =
+                Arc::new(Mutex::new(node_autonomos::AutonomosManager::new(config.secret_seed, listen_address.clone(), peer).await?));
             
             // Wait a moment for listening to be established.
             sleep(Duration::from_secs(5)).await;
             println!("Node launched and connected to the network.");
 
-            let event_loop_arc = autonomos_node.event_loop.clone();
+            // let event_loop_arc = autonomos_node.event_loop.clone();
+
             // Spawn the event loop.
             {
-                let event_loop_clone = event_loop_arc.clone();
-                tokio::spawn(async move {        
-                    event_loop_clone.lock().await.run().await;
+                //let event_loop_clone = event_loop_arc.clone();
+                let event_loop_arc = autonomos_node.lock().await.event_loop.clone();
+                tokio::spawn(async move {
+                    event_loop_arc.lock().await.run().await;
+                    // event_loop_clone.lock().await.run().await;
                 });
             }
 
             let namespace = "rendezvous";
-            let _register = autonomos_node.register_rendezvous(
+            let _register = autonomos_node.lock().await.register_rendezvous(
                 config.fix_addr_1.unwrap(), // "/ip4/127.0.0.1/udp/9000/quic-v1".parse::<Multiaddr>().unwrap(), // , 
                 config.peer_id_1.unwrap(), 
                 namespace).await;
             
+            let _show_db = autonomos_node.lock().await.access_the_db().await?;
             
             println!("Autonomos node launched and connected to the network.");
             
@@ -116,14 +135,9 @@ async fn command_loop_syndesmos(
     mut syndesmos: SyndesmosManager
 
 ) -> Result<(), Box<dyn Error>> {
+    
     // Command-line interface.
-    println!(
-        "Enter command: (store <file_name> <file_type> <secret> <file_path>\
-         | spread <mid (metadata id)>\
-         | call <file_name> <file_type> <secret>\
-         | get <file_name> <file_type> <secret> <private_key> <nonce>\
-         | exit)"
-    );
+    let _print_command = print_prompt_command()?;
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -160,7 +174,7 @@ async fn command_loop_syndesmos(
                     let cid_as_hex = nodecommand::midhex_to_cidhex(mid_as_hex).await?;
                     match syndesmos.spread_ntwk(cid_as_hex.to_string()).await
                     {
-                         Ok(()) => println!("File spreaded on DHT successfully!"),
+                        Ok(()) => println!("File spreaded on DHT successfully!"),
                         Err(e) => eprintln!("Error spreaded on DHT: {}", e),
                     }
                     match syndesmos.provide_file(path, cid_as_hex.to_string(), cid_as_hex.to_string()).await
@@ -214,11 +228,7 @@ async fn command_loop_syndesmos(
                            | get <file_name> <file_type> <secret> <private_key> <nonce>\
                            | exit"),
         }
-        println!("Enter command: (store <file_name> <file_type> <secret> <file_path>\
-                   | spread <mid (metadata id)>\
-                   | call <file_name> <file_type> <secret>\
-                   | get <file_name> <file_type> <secret> <private_key> <nonce>\
-                   | exit)");     
+        let _print_command = print_prompt_command()?;
     }
     Ok(())
 }
@@ -226,17 +236,12 @@ async fn command_loop_syndesmos(
 /// Command loop for Autonomos (regular node)
 async fn command_loop_autonomos(
 
-    mut autonomos: AutonomosManager
+    autonomos: Arc<Mutex<AutonomosManager>>
 
 ) -> Result<(), Box<dyn Error>> {
+    
     // Command-line interface.
-    println!(
-        "Enter command: (store <file_name> <file_type> <secret> <file_path>\
-         | spread <mid (metadata id)>\
-         | call <file_name> <file_type> <secret>\
-         | get <file_name> <file_type> <secret> <private_key> <nonce>\
-         | exit)"
-    );
+    let _print_command = print_prompt_command()?;
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -268,19 +273,36 @@ async fn command_loop_autonomos(
             }
             "spread" => {
                 if parts.len() == 2 {
-                    let mid_as_hex = parts[1];
-                    let path = nodecommand::local_path_to_cid(mid_as_hex).await?;
-                    let cid_as_hex = nodecommand::midhex_to_cidhex(mid_as_hex).await?;
-                    match autonomos.spread_ntwk(mid_as_hex.to_string()).await
+                    let mid_as_hex = parts[1].to_string();
+                    let path = nodecommand::local_path_to_cid(&mid_as_hex).await?;
+                    let cid_as_hex = nodecommand::midhex_to_cidhex(&mid_as_hex).await?;
+                    
+                    //Clone the Arc to call spread_ntwk
                     {
-                         Ok(()) => println!("File spreaded on DHT successfully!"),
+                        let autonomos_clone = Arc::clone(&autonomos);
+                        let mid = mid_as_hex.clone();
+                        let result = {
+                            let mut auto = autonomos_clone.lock().await;
+                            auto.spread_ntwk(mid.to_string()).await
+                        };
+                        match result {
+                        Ok(()) => println!("File spreaded on DHT successfully!"),
                         Err(e) => eprintln!("Error spreaded on DHT: {}", e),
+                        }
                     }
-                    match autonomos.answer_inbound_request(path, mid_as_hex.to_string(), cid_as_hex.to_string()).await
-                    {
-                        Ok(()) => println!("File transmitted successfully!"),
-                        Err(e) => eprintln!("Error transmitting file: {}", e),
-                    }
+                    // Spawn the inbound answer loop as a separate task.
+                    let autonomos_clone = autonomos.clone(); // <-- clone the Arc!
+                    tokio::spawn(async move {
+                        let mut auto = autonomos_clone.lock().await;
+                        if let Err(e) = auto.answer_inbound_request(
+                            path,
+                            mid_as_hex.to_string(),
+                            cid_as_hex.to_string(),
+                        ).await {
+                            eprintln!("Error transmitting file in inbound handler: {}", e);
+                        }
+                    });
+                    
                 }
             }
             "call" => {
@@ -293,28 +315,50 @@ async fn command_loop_autonomos(
                         
                         Ok(returned_mid_hex) => {
                             println!("call - Debug: Returned MID: {:?}", returned_mid_hex);
-                                    
-                            match autonomos.get_file(returned_mid_hex.clone()).await
                             {
-                                Ok(cid_as_hex) => {
-                                    println!("File transmitted successfully!");
-                                
-                                match  nodecommand::import_ntwk_file(&returned_mid_hex, &cid_as_hex).await
-                                {
-                                    Ok(()) => println!("!"),
-                                    Err(e) => eprintln!("Error importing file: {}", e),
+                                let autonomos_clone = Arc::clone(&autonomos);
+                                let returned_mid = returned_mid_hex.clone();
+                                let result = {
+                                    let mut auto = autonomos_clone.lock().await;
+                                    auto.get_file(returned_mid).await
+                                };
+                                match result {
+                                    Ok(cid_as_hex) => {
+                                        println!("File transmitted successfully!");
+                                        match nodecommand::import_ntwk_file(&returned_mid_hex, &cid_as_hex).await {
+                                            Ok(()) => println!("Import succeeded!"),
+                                            Err(e) => eprintln!("Error importing file: {}", e),
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Error transmitting file: {}", e),
                                 }
                             }
-                                Err(e) => eprintln!("Error transmitting file: {}", e),
-                            }
-
-                            
                         }
-
                         Err(e) => eprintln!("Error retrieving file: {}", e),
                     }
                 }
             }
+            //                 match autonomos.get_file(returned_mid_hex.clone()).await
+            //                 {
+            //                     Ok(cid_as_hex) => {
+            //                         println!("File transmitted successfully!");
+                                
+            //                     match  nodecommand::import_ntwk_file(&returned_mid_hex, &cid_as_hex).await
+            //                     {
+            //                         Ok(()) => println!("!"),
+            //                         Err(e) => eprintln!("Error importing file: {}", e),
+            //                     }
+            //                 }
+            //                     Err(e) => eprintln!("Error transmitting file: {}", e),
+            //                 }
+
+                            
+            //             }
+
+            //             Err(e) => eprintln!("Error retrieving file: {}", e),
+            //         }
+            //     }
+            // }
             "get" => {
                 println!("🔍 Raw Input: '{}'", input);
                 let parts: Vec<&str> = input.trim().splitn(6, ' ').collect();
@@ -348,11 +392,7 @@ async fn command_loop_autonomos(
                            | get <file_name> <file_type> <secret> <private_key> <nonce>\
                            | exit"),
         }
-        println!("Enter command: (store <file_name> <file_type> <secret> <file_path>\
-                   | spread <mid (metadata id)>\
-                   | call <file_name> <file_type> <secret>\
-                   | get <file_name> <file_type> <secret> <private_key> <nonce>\
-                   | exit)");
+        let _print_command = print_prompt_command()?;
     }
     // Keep the node running indefinitely.
     pending::<()>().await;

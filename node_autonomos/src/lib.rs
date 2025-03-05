@@ -1,6 +1,8 @@
 
 pub mod autonomos;
+
 use content_hashing::blakecheck;
+use db_access::get_midcid_pairs;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf, collections::HashMap};
 use futures::{prelude::*, StreamExt};
@@ -143,39 +145,63 @@ impl AutonomosManager{
         Ok(())
     }
 
+    pub async fn access_the_db(&mut self) -> Result<(), Box<dyn Error>> {
+        let _ = get_midcid_pairs().await?;
+        //tracing::debug!("\nAccess DB MID: {}\nCID: {}", midhex, cidhex);
+        Ok(())
+    }
+
     pub async fn answer_inbound_request(&mut self, path: PathBuf, name: String, cid: String) -> Result<(), Box<dyn Error>> {
+
+        // Wrap the owned values in an Arc so that we can clone them cheaply.
+        let path = Arc::new(path);
+        let name = Arc::new(name);
+        let cid = Arc::new(cid);
 
         // Loop and respond to inbound file requests that match `name`.
         loop {
             tracing::debug!("Waiting for inbound file requests...");
-            match self.event_stream.next().await {
-                Some(autonomos::Event::InboundFileRequest { peer, file_name, stream }) => {
-                    // 1. check if the requested file name matches our `name`.
-                    tracing::debug!("Lib.rs checks: {} {}", file_name, name);
-                    if file_name == *name {
-                        tracing::debug!("Inbound request from {peer} matched our file '{file_name}'. Calling send_file_with_hash now!");
-                            // 1) We want to send that file in chunks with BLAKE3 verification.
-                        // So we call chunkblake::send_file_with_hash:
-                        // convertion stream (lipp2p) to tokio
-                        let (_reader, writer) = stream.split();
-                        let writer = writer.compat_write();
-                        
-                        match blakecheck::send_file_with_hash(writer, &path, &cid).await {
-                            Ok(()) => {
-                                tracing::debug!("Sent file {} to peer {:?}", name, peer);
-                            }
-                            Err(e) => {
-                                tracing::debug!("Error sending file: {e}");
-                            }
+            if let Some(event) = self.event_stream.next().await {
+                match event {
+                    autonomos::Event::InboundFileRequest { peer, file_name, stream } => {
+                        // 1. check if the requested file name matches our `name`.
+                        tracing::debug!("Lib.rs checks: {} {}", file_name, name);
+                        if file_name == *name {
+                            
+                            // Clone the Arcs so that each spawned task gets its own reference.
+                            let local_path = Arc::clone(&path);
+                            let local_cid = Arc::clone(&cid);
+                            let local_name = Arc::clone(&name);
+
+                            // Spawn a task to handle this particular request
+                            tokio::spawn(async move {
+                                tracing::debug!("Handling file request from {:?} for file '{}'", peer, file_name);
+                                // tracing::debug!("Inbound request from {peer} matched our file '{file_name}'. Calling send_file_with_hash now!");
+                                //     // 1) We want to send that file in chunks with BLAKE3 verification.
+                                // // So we call chunkblake::send_file_with_hash:
+                                // // convertion stream (lipp2p) to tokio
+                                let (_reader, writer) = stream.split();
+                                let writer = writer.compat_write();
+                                
+                                match blakecheck::send_file_with_hash(writer, &local_path, &local_cid).await {
+                                    Ok(()) => {
+                                        tracing::debug!("Sent file {} to peer {:?}", local_name, peer);
+                                    }
+                                    Err(e) => {
+                                        tracing::debug!("Error sending file: {e}");
+                                    }
+                                }
+                            });
+                            
+                        } else {
+                        tracing::debug!("Peer {:?} requested unknown file {file_name}", peer);
+                        // Possibly write some error bytes back, or do nothing
                         }
-                    } else {
-                    tracing::debug!("Peer {:?} requested unknown file {file_name}", peer);
-                    // Possibly write some error bytes back, or do nothing
                     }
-                }
-                // For simplicity, skip unimplemented events. other => todo!("{:?}", other),
-                other => {
-                    tracing::warn!("Unexpected event_stream: {:?}", other);
+                    // For simplicity, skip unimplemented events. other => todo!("{:?}", other),
+                    _ => {
+                        tracing::warn!("Unexpected event_stream: {:?}", event);
+                    }
                 }
             }
         }

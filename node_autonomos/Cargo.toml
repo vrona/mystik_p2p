@@ -22,3 +22,4 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 content-hashing = { path = "../content-hashing" }
 metadata-mrkl   = { path = "../metadata-mrkl" }
+db-access   = { path = "../db-access" }

@@ -5,18 +5,14 @@ use rs_merkle::{self, algorithms::Sha256, Hasher as MerkleHasher, MerkleTree, Me
 use hex::{encode, decode};
 
 use monotree::{
-    database::sled::Sled,
-    hasher::{Blake3, Hasher},
-    verify_proof,
-    Result as MonoTResult,
-    Errors,
-    Monotree
+    database::sled::Sled, hasher::{Blake3, Hasher}, verify_proof,Errors, Monotree, Result as MonoTResult
 };
 
 use std::convert::TryInto;
 
 mod store_rsmerkle;
 use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
+
 
 //pub const STORAGE_MIDCID: &str = "./data/metadata/midcid/";
 pub fn get_storage_midcid() -> String {
@@ -185,10 +181,10 @@ impl MonoMetaTree {
     pub fn new() -> MonoTResult<Self>{
 
         let storage_midcid = format!("{}", get_storage_midcid());
-        
+
         let mut newtree = Monotree::<Sled, Blake3>::new(&storage_midcid);
         let head_root = newtree.get_headroot()?;
-
+        
         Ok(MonoMetaTree{
             tree: newtree,
             root: head_root,
@@ -200,6 +196,7 @@ impl MonoMetaTree {
         self.root = self.tree.insert(self.root.as_ref(), &key, &leaf)?;
         self.tree.commit();
         self.tree.set_headroot(self.root.as_ref());
+
         Ok(())
     }
 
@@ -208,6 +205,7 @@ impl MonoMetaTree {
         self.root = self.tree.remove(self.root.as_ref(), &key)?;
         self.tree.commit();
         self.tree.set_headroot(self.root.as_ref());
+
         Ok(())
     }
 
@@ -253,7 +251,7 @@ pub async fn bytes_to_hex<const N: usize>(bytes: [u8; N]) -> String {
     encode(bytes)
 }
 
-///// CRYPTOGRAPHY SECTION
+///// TESTING SECTION
 // async fn newkey() -> Result<([u8; 32], [u8; 19]), Box <dyn Error>> {
 
 //     let mut key = [0u8; 32];

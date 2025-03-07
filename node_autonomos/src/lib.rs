@@ -1,7 +1,6 @@
-
 pub mod autonomos;
 
-use content_hashing::blakecheck;
+use content_hashing::{blakecheck, get_storage_dir};
 use db_access::get_midcid_pairs;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf, collections::HashMap};
@@ -9,11 +8,17 @@ use futures::{prelude::*, StreamExt};
 use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, rendezvous};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
-use tracing::debug; 
+use tracing::{debug, error}; 
 use autonomos::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt; // try to make compatibility between tokio and libp2p stream
+use tokio_stream;
+use futures::channel::mpsc;
+use tokio::io::{BufReader, AsyncBufReadExt};
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+
 pub struct AutonomosManager {
     pub client: Client,
     pub event_stream: Pin<Box<dyn Stream<Item = Event> + Send>>,
@@ -22,9 +27,9 @@ pub struct AutonomosManager {
     pub listen_address: Option<Multiaddr>,
     /// Peer to dial (optional) => bootstrapping or relaying
     pub peer: Option<Multiaddr>,
+    midcid_memory_register: Arc<Mutex<HashMap<String, (PathBuf, String)>>>,
 
 }
-
 
 impl AutonomosManager{
 
@@ -121,14 +126,55 @@ impl AutonomosManager{
         // 8) Advertise on the DHT
         client.advertise(local_peer_id, addr_to_advertise).await?;
 
+        // checking existence of persistent mid and cid data and loading (necessary when node has been switched off)
+        let current_persistent_midcid = Self::access_the_db().await?;
+
         Ok(Self {
             client,
             event_stream: Box::pin(event_stream),
             event_loop,
             listen_address,
             peer,
+            midcid_memory_register: Arc::new(Mutex::new(current_persistent_midcid)),
         })
     } 
+
+    // checking existence of persistent mid and cid data, return an HashMap
+    pub async fn access_the_db() -> Result<HashMap::<String, (PathBuf, String)>, Box<dyn Error>> {
+        // pub const STORAGE_DIR: &str = "./data/content/";
+        
+        let tmp_constant_path = get_storage_dir();
+
+        let mut file_registry = HashMap::<String, (PathBuf, String)>::new();
+
+        let pairs = get_midcid_pairs().await?;
+        
+        // if pairs are empty just return empty hashmap        
+        if pairs.is_empty() {
+            return Ok(file_registry);
+        }
+        
+        for (mid, cid) in &pairs {
+            let path = format!("{}{}.bin", tmp_constant_path, cid);
+            let path_cid = PathBuf::from(path);
+            println!("MID: {} -> CID: {}", mid, cid);
+            file_registry.insert(mid.to_string(), (path_cid, cid.to_string()));
+        }
+        
+        //tracing::debug!("\nAccess DB MID: {}\nCID: {}", midhex, cidhex);
+        Ok(file_registry)
+    }
+
+    // Updating the HashMap of midcid to let Inbound Request been fulfilled
+    pub async fn register_midcid_memory(&mut self, mid_as_hex: String, path_dir: PathBuf, cid_as_hex: String) -> Result<(), Box<dyn Error>>{
+       
+        let path = format!("{}{}.bin", path_dir.display(), cid_as_hex);
+        let path_cid = PathBuf::from(path);
+        let mut mirroring_midcid = self.midcid_memory_register.lock().await;
+        mirroring_midcid.insert(mid_as_hex, (path_cid, cid_as_hex));
+       
+        Ok(())
+    }
 
 
     pub async  fn spread_ntwk(&mut self, name: String) -> Result<(), Box<dyn Error>> {
@@ -145,67 +191,51 @@ impl AutonomosManager{
         Ok(())
     }
 
-    pub async fn access_the_db(&mut self) -> Result<(), Box<dyn Error>> {
-        let _ = get_midcid_pairs().await?;
-        //tracing::debug!("\nAccess DB MID: {}\nCID: {}", midhex, cidhex);
+
+    pub async fn launch_inbound_request_task(&mut self) -> Result<(), Box<dyn Error>> {
+        let midcid_memory_register_clone = self.midcid_memory_register.clone();
+
+        // Take ownership of the current event stream and replace it with an empty stream.
+        let mut event_stream = std::mem::replace(&mut self.event_stream, Box::pin(futures::stream::empty()));
+
+        // Spawn a local task to process inbound file request events directly.
+        tokio::spawn(async move {
+            tracing::debug!("Waiting for inbound file requests...");
+            while let Some(event) = event_stream.next().await {
+                match event {
+                    autonomos::Event::InboundFileRequest { peer, file_name, stream } => {
+                        tracing::debug!("Received inbound file request for: {}", file_name);
+
+                        let midcid_memory_registry = midcid_memory_register_clone.lock().await;
+
+                        if let Some((path, cid)) = midcid_memory_registry.get(&file_name) {
+                            let path_cid = path.clone();
+                            let local_cid = cid.clone();
+                            let file_name_clone = file_name.clone();
+
+                            // Use the stream directly.
+                            let (_reader, writer) = stream.split();
+                            let writer = writer.compat_write();
+
+                            tokio::spawn(async move {
+                                tracing::debug!("Handling file request from {:?} for file '{}'", peer, file_name_clone);
+
+                                if let Err(e) = blakecheck::send_file_with_hash(writer, &path_cid, &local_cid).await {
+                                    tracing::debug!("Error sending file: {} look path: {}", e, path_cid.display());
+                                }
+                            });
+                        } else {
+                            tracing::debug!("Peer {:?} requested unknown file {}", peer, file_name);
+                        }
+                    }
+                    _ => {} // Optionally handle other events
+                }
+            }
+        });
+
         Ok(())
     }
 
-    pub async fn answer_inbound_request(&mut self, path: PathBuf, name: String, cid: String) -> Result<(), Box<dyn Error>> {
-
-        // Wrap the owned values in an Arc so that we can clone them cheaply.
-        let path = Arc::new(path);
-        let name = Arc::new(name);
-        let cid = Arc::new(cid);
-
-        // Loop and respond to inbound file requests that match `name`.
-        loop {
-            tracing::debug!("Waiting for inbound file requests...");
-            if let Some(event) = self.event_stream.next().await {
-                match event {
-                    autonomos::Event::InboundFileRequest { peer, file_name, stream } => {
-                        // 1. check if the requested file name matches our `name`.
-                        tracing::debug!("Lib.rs checks: {} {}", file_name, name);
-                        if file_name == *name {
-                            
-                            // Clone the Arcs so that each spawned task gets its own reference.
-                            let local_path = Arc::clone(&path);
-                            let local_cid = Arc::clone(&cid);
-                            let local_name = Arc::clone(&name);
-
-                            // Spawn a task to handle this particular request
-                            tokio::spawn(async move {
-                                tracing::debug!("Handling file request from {:?} for file '{}'", peer, file_name);
-                                // tracing::debug!("Inbound request from {peer} matched our file '{file_name}'. Calling send_file_with_hash now!");
-                                //     // 1) We want to send that file in chunks with BLAKE3 verification.
-                                // // So we call chunkblake::send_file_with_hash:
-                                // // convertion stream (lipp2p) to tokio
-                                let (_reader, writer) = stream.split();
-                                let writer = writer.compat_write();
-                                
-                                match blakecheck::send_file_with_hash(writer, &local_path, &local_cid).await {
-                                    Ok(()) => {
-                                        tracing::debug!("Sent file {} to peer {:?}", local_name, peer);
-                                    }
-                                    Err(e) => {
-                                        tracing::debug!("Error sending file: {e}");
-                                    }
-                                }
-                            });
-                            
-                        } else {
-                        tracing::debug!("Peer {:?} requested unknown file {file_name}", peer);
-                        // Possibly write some error bytes back, or do nothing
-                        }
-                    }
-                    // For simplicity, skip unimplemented events. other => todo!("{:?}", other),
-                    _ => {
-                        tracing::warn!("Unexpected event_stream: {:?}", event);
-                    }
-                }
-            }
-        }
-    }
 
     
     pub async fn get_file(&mut self, name: String) -> Result<String, Box<dyn Error >>{

@@ -49,7 +49,7 @@ pub fn get_storage_dir() -> String {
     std::env::var("STORAGE_DIR").unwrap_or_else(|_| "./data/content/".to_string())
 }
 
-/// We define a “flattened” event type so that we can handle both in one `SwarmEvent`.
+/// We define a "flattened" event type so that we can handle both in one `SwarmEvent`.
 /// [`NetworkBehaviour`] Composite network behaviour that combines relay, ping, identify, Kademlia (DHT), Streams.
 /// and a stream-based file exchange protocol.
 #[derive(NetworkBehaviour)]
@@ -773,7 +773,7 @@ impl EventLoop {
                     match open_result {
                         Ok(stream) => {
                             // tracing::debug!("Successfully opened stream to peer: {}", peer);
-                            // tracing::debug!("Writing file name '{}' to the stream...", file_name);
+                            tracing::debug!("Writing file name '{}' to the stream...", file_name);
 
                             // Split the stream into read and write halves
                             let (reader, mut writer) = stream.split();
@@ -786,7 +786,7 @@ impl EventLoop {
 
                             } else {
 
-                                // tracing::debug!("Written file name '{}' to stream.", file_name);
+                                tracing::debug!("Written file name '{}' to stream.", file_name);
                                 // 2) Shutdown the write side to signal EOF
                                 if let Err(e) = writer.flush().await {
                                     //tracing::debug!("Failed to shutdown write half of the stream: {e}");
@@ -795,7 +795,7 @@ impl EventLoop {
                                 } else {
                                     writer.close().await.unwrap();
 
-                                    //tracing::debug!("Write side of the stream successfully closed.");
+                                    tracing::debug!("Write side of the stream successfully closed.");
 
                                     let directory_path = format!("{}", get_storage_dir());
                                     let dir_path = std::path::Path::new(&directory_path);
@@ -803,7 +803,7 @@ impl EventLoop {
 
                                     match blakecheck::receive_file_with_hash(reader, dir_path).await {
                                         Ok(cid) => {
-                                            //tracing::debug!("File received successfully at {:?}", dir_path);
+                                            tracing::debug!("File received successfully at {:?}", dir_path);
                                             
                                             let final_path = format!("{}{}.bin", dir_path.display(), cid);
 
@@ -813,13 +813,13 @@ impl EventLoop {
                                                     Ok((file_bytes, cid))
                                                 }
                                                 Err(e) => {
-                                                    //tracing::debug!("Failed to read file from disk: {e}");
+                                                    tracing::debug!("Failed to read file from disk: {e}");
                                                     Err(anyhow!("Failed to read file from disk: {}", e))
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            //tracing::debug!("Error during receive_file_with_hash: {e}");
+                                            tracing::debug!("Error during receive_file_with_hash: {e}");
                                             Err(anyhow!("Error during receive_file_with_hash: {}", e))
                                         }
                                     }

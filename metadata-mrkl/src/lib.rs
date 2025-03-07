@@ -13,6 +13,10 @@ use std::convert::TryInto;
 mod store_rsmerkle;
 use store_rsmerkle::{RSMerkleTree, PersistentRsMerkle};
 
+//pub const STORAGE_MERKLE: &str = "./data/metadata/midcid/";
+pub fn get_storage_merkle() -> String {
+    std::env::var("STORAGE_MERKLE").unwrap_or_else(|_| "./data/metadata/metamerkle/".to_string())
+}
 
 //pub const STORAGE_MIDCID: &str = "./data/metadata/midcid/";
 pub fn get_storage_midcid() -> String {

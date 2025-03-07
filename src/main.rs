@@ -16,6 +16,7 @@ use node_syndesmos::SyndesmosManager; // This crate implements the rendezvous (s
 // Optionally, also import your node command functions.
 use nodecommand;
 
+use content_hashing::get_storage_dir;
 // prompt the command
 fn print_prompt_command() -> io::Result<()>{
     println!(
@@ -109,6 +110,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     // event_loop_clone.lock().await.run().await;
                 });
             }
+            // Extract the event loop clone from the autonomos node.
+            // let event_loop_arc = {
+            //     let node = autonomos_node.lock().await;
+            //     node.event_loop.clone()
+            // };
+
+            // // Create a LocalSet to run non-Send futures.
+            // let local = tokio::task::LocalSet::new();
+
+            // // Spawn the event loop as a local task.
+            // local.spawn_local({
+            // let event_loop_arc = event_loop_arc.clone();
+            // async move {
+            //         event_loop_arc.lock().await.run().await;
+            //     }
+            // });
+
 
             let namespace = "rendezvous";
             let _register = autonomos_node.lock().await.register_rendezvous(
@@ -116,8 +134,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 config.peer_id_1.unwrap(), 
                 namespace).await;
             
-            let _show_db = autonomos_node.lock().await.access_the_db().await?;
-            
+
             println!("Autonomos node launched and connected to the network.");
             
             // Command-line interface loop for the autonomos node.
@@ -160,7 +177,7 @@ async fn command_loop_syndesmos(
                 )
                 .await
                 {
-                    Ok((private_key, nonce, _)) => {
+                    Ok((private_key, nonce, _mid_as_hex, _cid_as_hex)) => {
                         println!("🔍 private_key: {:?}", private_key);
                         println!("🔍 nonce: {:?}", nonce);
                     }
@@ -256,6 +273,8 @@ async fn command_loop_autonomos(
                 let file_type = parts[2];
                 let secret = parts[3];
                 let file_path = parts[4];
+
+                let tmp_constant_path = std::path::PathBuf::from(get_storage_dir());
                 match nodecommand::store_file(
                     file_name,
                     file_type,
@@ -264,9 +283,25 @@ async fn command_loop_autonomos(
                 )
                 .await
                 {
-                    Ok((private_key, nonce, _)) => {
+                    Ok((private_key, nonce, mid_as_hex, cid_as_hex)) => {
                         println!("🔍 private_key: {:?}", private_key);
                         println!("🔍 nonce: {:?}", nonce);
+
+                        //Clone the Arc to call spread_ntwk
+                        {
+                            let autonomos_clone = Arc::clone(&autonomos);
+                            let mid = mid_as_hex.clone();
+                            let cid = cid_as_hex.clone();
+                            let result = {
+                                let mut auto = autonomos_clone.lock().await;
+                                auto.register_midcid_memory(mid.to_string(), tmp_constant_path, cid).await
+                            };
+                            match result {
+                            Ok(()) => println!("Registered new midcid pair successfully."),
+                            Err(e) => eprintln!("Error Registering midcid pair: {}", e),
+                            }
+                        }
+                            
                     }
                     Err(e) => eprintln!("Error storing file: {}", e),
                 }
@@ -274,8 +309,8 @@ async fn command_loop_autonomos(
             "spread" => {
                 if parts.len() == 2 {
                     let mid_as_hex = parts[1].to_string();
-                    let path = nodecommand::local_path_to_cid(&mid_as_hex).await?;
-                    let cid_as_hex = nodecommand::midhex_to_cidhex(&mid_as_hex).await?;
+                    // let path = nodecommand::local_path_to_cid(&mid_as_hex).await?;
+                    // let cid_as_hex = nodecommand::midhex_to_cidhex(&mid_as_hex).await?;
                     
                     //Clone the Arc to call spread_ntwk
                     {
@@ -294,14 +329,21 @@ async fn command_loop_autonomos(
                     let autonomos_clone = autonomos.clone(); // <-- clone the Arc!
                     tokio::spawn(async move {
                         let mut auto = autonomos_clone.lock().await;
-                        if let Err(e) = auto.answer_inbound_request(
-                            path,
-                            mid_as_hex.to_string(),
-                            cid_as_hex.to_string(),
-                        ).await {
+                        if let Err(e) = auto.launch_inbound_request_task().await {
                             eprintln!("Error transmitting file in inbound handler: {}", e);
                         }
                     });
+
+
+                    // Spawn the inbound request task as a local task.
+                    // {
+                    //     let autonomos_clone = Arc::clone(&autonomos_node);
+                    //     local.spawn_local(async move {
+                    //         if let Err(e) = autonomos_clone.lock().await.launch_inbound_request_task().await {
+                    //             eprintln!("Error in inbound request task: {}", e);
+                    //         }
+                    //     });
+                    // }
                     
                 }
             }

@@ -4,28 +4,34 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use content_hashing::get_storage_dir;
+use metadata_mrkl::get_storage_merkle;
 
 
 /// Reconstructs MID/CID pairs by examining the file system directly.
 /// CIDs are stored as .bin files in content directory
 /// MIDs are represented as subfolder names in metadata/metamerkle directory
 pub async fn get_midcid_pairs() -> Result<Vec<(String, String)>, Box<dyn Error>> {
-    // Define paths
-    let content_dir = "/Volumes/vrona_SSD/intnet/nodeB/content";
-    let metadata_dir = "/Volumes/vrona_SSD/intnet/nodeB/metadata/metamerkle";
-    
+
+    // Get content directory by calling get_storage_dir()
+    let content_dir = get_storage_dir();
+    let metadata_dir = get_storage_merkle();
+
+    println!("content_dir: {}", content_dir);
+    println!("metadata_dir: {}", metadata_dir);
+
     // Get all CID files from content directory
     let mut cid_paths = Vec::new();
-    visit_content_files(Path::new(content_dir), &mut cid_paths)?;
-    tracing::info!("Found {} CID files", cid_paths.len());
+    visit_content_files(Path::new(&content_dir), &mut cid_paths)?;
+    // tracing::info!("Found {} CID files", cid_paths.len());
     
     // Get all MID directories
-    let mid_dirs = fs::read_dir(metadata_dir)?
+    let mid_dirs = fs::read_dir(&metadata_dir)?
         .filter_map(Result::ok)
         .filter(|entry| entry.path().is_dir())
         .map(|entry| entry.file_name().to_string_lossy().to_string())
         .collect::<Vec<String>>();
-    tracing::info!("Found {} MID directories", mid_dirs.len());
+    // tracing::info!("Found {} MID directories", mid_dirs.len());
     
     // For each CID, read its metadata to find the corresponding MID
     let mut pairs = Vec::new();
@@ -40,13 +46,13 @@ pub async fn get_midcid_pairs() -> Result<Vec<(String, String)>, Box<dyn Error>>
         // This is a simplified approach - you might need more complex logic
         // depending on how the files are actually connected
         for mid in &mid_dirs {
-            let potential_link_path = Path::new(metadata_dir)
+            let potential_link_path = Path::new(&metadata_dir)
                 .join(mid)
                 .join(format!("{}.link", cid));
             
             if potential_link_path.exists() {
                 pairs.push((mid.clone(), cid.clone()));
-                tracing::info!("Found pair: {} -> {}", mid, cid);
+                // tracing::info!("Found pair: {} -> {}", mid, cid);
                 break;
             }
         }
@@ -57,10 +63,10 @@ pub async fn get_midcid_pairs() -> Result<Vec<(String, String)>, Box<dyn Error>>
         match_by_timestamps(&cid_paths, &mid_dirs, &mut pairs)?;
     }
     
-    tracing::info!("Reconstructed {} MID/CID pairs", pairs.len());
+    // tracing::info!("Reconstructed {} MID/CID pairs", pairs.len());
     
     if pairs.is_empty() {
-        tracing::debug!("No MID/CID pairs could be reconstructed");
+        // tracing::debug!("No MID/CID pairs could be reconstructed");
         Ok(Vec::new())
     } else {
         Ok(pairs)
@@ -70,6 +76,7 @@ pub async fn get_midcid_pairs() -> Result<Vec<(String, String)>, Box<dyn Error>>
 /// Recursively visits content files (.bin) and adds their paths to the result vector
 fn visit_content_files(dir: &Path, result: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>> {
     if dir.is_dir() {
+
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
@@ -103,7 +110,7 @@ fn match_by_timestamps(
     // Get metadata for all MID directories
     let mut mid_metadata: Vec<_> = mid_dirs.iter()
         .filter_map(|mid| {
-            let dir_path = Path::new("/Volumes/vrona_SSD/intnet/nodeB/metadata/metamerkle").join(mid);
+            let dir_path = Path::new(&get_storage_merkle()).join(mid);
             let metadata = fs::metadata(&dir_path).ok()?;
             let created = metadata.created().ok()?;
             Some((mid.clone(), created))
@@ -114,15 +121,15 @@ fn match_by_timestamps(
     cid_metadata.sort_by(|a, b| a.1.cmp(&b.1));
     mid_metadata.sort_by(|a, b| a.1.cmp(&b.1));
     
-    tracing::info!("Sorted CIDs by timestamp:");
-    for (cid, time) in &cid_metadata {
-        tracing::info!("CID: {} at {:?}", cid, time);
-    }
+    // // tracing::info!("Sorted CIDs by timestamp:");
+    // for (cid, time) in &cid_metadata {
+    //     tracing::info!("CID: {} at {:?}", cid, time);
+    // }
     
-    tracing::info!("Sorted MIDs by timestamp:");
-    for (mid, time) in &mid_metadata {
-        tracing::info!("MID: {} at {:?}", mid, time);
-    }
+    // // tracing::info!("Sorted MIDs by timestamp:");
+    // for (mid, time) in &mid_metadata {
+    //     tracing::info!("MID: {} at {:?}", mid, time);
+    // }
     
     // Match them in sorted order
     let min_len = std::cmp::min(cid_metadata.len(), mid_metadata.len());

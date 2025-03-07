@@ -10,7 +10,7 @@ use metadata_mrkl::{Metadata, MonoMetaTree, hex_to_bytes, bytes_to_hex};
 // ╚═╩═╩═╩══╩═╝
 // Current Node - Store file
 // return private key and nonce to decrypt file if needed + MID to provided to the network
-pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str) -> Result<([u8; 32], [u8; 19], [u8; 32]), Box<dyn Error>> {
+pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_path: &str) -> Result<([u8; 32], [u8; 19], String, String), Box<dyn Error>> {
 
     // create private key and nonce for file encryption/decryption
     let (private_key, nonce) = newkey().await?;
@@ -60,7 +60,7 @@ pub async fn store_file(file_name: &str, file_type: &str, secret: &str, file_pat
     print!("\n");
     println!("mid_as_hex: {:?}", mid_as_hex);
     
-    return  Ok((private_key, nonce, mid_as_key));
+    return  Ok((private_key, nonce, mid_as_hex.to_string(), cid_as_hex));
 }
 
 

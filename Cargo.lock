@@ -805,6 +805,7 @@ dependencies = [
 name = "db-access"
 version = "0.1.0"
 dependencies = [
+ "content-hashing",
  "futures",
  "hex",
  "metadata-mrkl",
@@ -2512,6 +2513,7 @@ dependencies = [
  "rand",
  "serde",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "tracing-subscriber",

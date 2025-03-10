@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Error as AnyhowError};
-use crate::blakecheck::receive_file_with_hash;
+use content_hashing::blakecheck::receive_file_with_hash;
 // use std::io::Write;
 use libp2p::kad::KBucketKey;
 
 use std::{
-    collections::{hash_map, HashMap, HashSet}, // , error::Error as StdError
-    time::Duration
+    collections::{hash_map, HashMap},
+    sync::Arc,
 };
 
 use futures::{
@@ -35,8 +35,10 @@ use libp2p::{
 
 use libp2p_stream as stream;
 //use rand::RngCore;
-use tokio::task::JoinHandle;
-use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt}; // try to make compatibility between tokio and libp2p stream
+use tokio::{task::JoinHandle, sync::Mutex, time::{self, Duration}};
+
+use tokio_util::compat::FuturesAsyncReadCompatExt; // try to make compatibility between tokio and libp2p stream
+
 /// A custom protocol tag for our file-exchange streams.
 const FILE_PROTOCOL: StreamProtocol = StreamProtocol::new("/file-exchange/1");
 
@@ -45,7 +47,7 @@ pub fn get_storage_dir() -> String {
     std::env::var("STORAGE_DIR").unwrap_or_else(|_| "./data/content/".to_string())
 }
 
-/// We define a “flattened” event type so that we can handle both in one `SwarmEvent`.
+/// We define a "flattened" event type so that we can handle both in one `SwarmEvent`.
 /// [`NetworkBehaviour`] Composite network behaviour that combines relay, ping, identify, Kademlia (DHT), Streams.
 /// and a stream-based file exchange protocol.
 #[derive(NetworkBehaviour)]
@@ -115,6 +117,11 @@ enum Command {
         addr: Multiaddr,
         sender: oneshot::Sender<Result<(), AnyhowError>>,
     },
+    Advertise{
+        peer_id: PeerId,
+        address: Multiaddr,
+        sender: oneshot::Sender<Result<(), AnyhowError>>,
+    },
     Dial {
         peer_id: PeerId,
         peer_addr: Multiaddr,
@@ -126,14 +133,14 @@ enum Command {
     },
     GetProviders {
         file_name: String,
-        sender: oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>,
+        sender: oneshot::Sender<Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError>>,
     },
     // -----------------------
     // Stream-based file request:
     RequestFile {
         peer: PeerId,
         file_name: String,
-        sender: oneshot::Sender<Result<Vec<u8>, AnyhowError>>,
+        sender: oneshot::Sender<Result<(Vec<u8>, String), AnyhowError>>,
     },
     // If you want a "RespondFile" command that *pushes* data, you can do something similar.
     // In that scenario, you'd open a substream as well from your side. Alternatively, you
@@ -177,7 +184,7 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
         .with_quic()
         .with_behaviour(|key| {
             let relay_behaviour = relay::Behaviour::new(key.public().to_peer_id(), Default::default());
-            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(1)));
+            let ping_behaviour = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(30)));
             let identify_behaviour = identify::Behaviour::new(identify::Config::new("/composite/0.1.0".to_string(), key.public()));
             let store = kad::store::MemoryStore::new(key.public().to_peer_id());
             let mut kademlia_behaviour = kad::Behaviour::new(peer_id, store);
@@ -200,10 +207,13 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
     let (command_sender, command_receiver) = mpsc::channel(32);
     let (event_sender, event_receiver) = mpsc::channel(32);
 
+    // Create the shared variable for the actual listen address.
+    let actual_listen_addr: Arc<Mutex<Option<Multiaddr>>> = Arc::new(Mutex::new(None));
+
     Ok((
         Client { sender: command_sender },
         event_receiver,
-        EventLoop::new(swarm, command_receiver, event_sender),
+        EventLoop::new(swarm, command_receiver, event_sender, actual_listen_addr.clone()),
     ))
 }
 
@@ -219,6 +229,7 @@ impl Client {
         &mut self,
         addr: Multiaddr,
     ) -> Result<(), AnyhowError> {
+
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::StartListening { addr, sender })
@@ -228,6 +239,20 @@ impl Client {
         receiver
             .await
             .map_err(|e| anyhow!("StartListening command failed to receive response: {}", e))?
+    }
+
+    /// Advertising the local address to the DHT
+    pub async fn advertise(
+        &mut self,
+        peer_id: PeerId,
+        address: Multiaddr,
+        ) -> Result<(), AnyhowError> {
+            let (sender, receiver) = oneshot::channel();
+            self.sender
+                .send(Command::Advertise { peer_id, address, sender })
+                .await
+                .map_err(|e| anyhow!("Failed to send Advertising command: {}", e))?;
+            receiver.await.map_err(|e| anyhow!("Advertising command failed: {}", e))?
     }
 
     /// Dial the given peer at the given address.
@@ -265,13 +290,17 @@ impl Client {
     }
 
     /// Find providers for the given file on the DHT.
-    pub async fn get_providers(&mut self, file_name: String) -> Result<HashSet<PeerId>, AnyhowError> {
+    pub async fn get_providers(&mut self, file_name: String) -> Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError> {
+        // Create a oneshot channel to receive the provider map.
         let (sender, receiver) = oneshot::channel();
+
+        // Send the GetProviders command along with the sender half.
         self.sender
             .send(Command::GetProviders { file_name, sender })
             .await
             .map_err(|e| anyhow!("Failed to send GetProviders command: {}", e))?;
         
+        // Await the result from the event handler.
         receiver
             .await
             .map_err(|e| anyhow!("GetProviders command failed to receive response: {}", e))?
@@ -292,7 +321,7 @@ impl Client {
         &mut self,
         peer: PeerId,
         file_name: String,
-    ) -> Result<Vec<u8>, AnyhowError> {
+    ) -> Result<(Vec<u8>, String), AnyhowError> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::RequestFile { peer, file_name, sender })
@@ -307,9 +336,10 @@ pub struct EventLoop {
     swarm: Swarm<CompositeBehaviour>,
     command_receiver: mpsc::Receiver<Command>,
     event_sender: mpsc::Sender<Event>,
+    pub actual_listen_addr: Arc<Mutex<Option<Multiaddr>>>,
     pending_dial: HashMap<PeerId, oneshot::Sender<Result<(), AnyhowError>>>,
     pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), AnyhowError>>>,
-    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Result<HashSet<PeerId>, AnyhowError>>>,
+    pending_get_providers: HashMap<kad::QueryId, oneshot::Sender<Result<HashMap<PeerId, Vec<Multiaddr>>, AnyhowError>>>,
 }
 
 impl EventLoop {
@@ -317,11 +347,14 @@ impl EventLoop {
         swarm: Swarm<CompositeBehaviour>,
         command_receiver: mpsc::Receiver<Command>,
         event_sender: mpsc::Sender<Event>,
+        actual_listen_addr: Arc<Mutex<Option<Multiaddr>>>,
     ) -> Self {
+
         Self {
             swarm,
             command_receiver,
             event_sender,
+            actual_listen_addr,
             pending_dial: Default::default(),
             pending_start_providing: Default::default(),
             pending_get_providers: Default::default(),
@@ -369,7 +402,8 @@ impl EventLoop {
                 // Drive the swarm forward.
                 event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(event).await;
-                }
+                },
+
                 // Handle user commands.
                 cmd = self.command_receiver.next() => match cmd {
                     Some(c) => self.handle_command(c).await,
@@ -440,6 +474,8 @@ impl EventLoop {
     }
 
     async fn handle_swarm_event(&mut self, event: SwarmEvent<CompositeEvent>) {
+
+
         match event {
 
             SwarmEvent::Behaviour(CompositeEvent::Rendezvous(
@@ -459,6 +495,35 @@ impl EventLoop {
                     enquirer,
                     registrations.len(),
                 );
+                let local_peer_id = self.swarm.local_peer_id().clone();
+
+                        for registration in registrations {
+                            for address in registration.record.addresses() {
+
+                                let peer = registration.record.peer_id();
+                                //tracing::info!(%peer, %address, "Discovered peer");
+
+                                if peer == local_peer_id {
+                                    //tracing::info!(%peer, "Skipping dialing self");
+                                    continue;
+                                }
+
+                                let p2p_suffix = Protocol::P2p(peer);
+                                let address_with_p2p =
+                                    if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
+                                        address.clone().with(p2p_suffix.clone())
+                                    } else {
+                                        address.clone()
+                                    };
+                                
+                                //println!("YOUR NEIGHBORS \n {} \n", address_with_p2p);
+                                //if let Err(e) =
+                                let _ = self.swarm.dial(address_with_p2p.clone()); //{
+                                //    tracing::error!("Dial failed: {}", e);
+                                //}
+                                self.swarm.behaviour_mut().kademlia.add_address(&peer, address_with_p2p);
+                            }
+                        }
             }
             
             SwarmEvent::Behaviour(CompositeEvent::Kademlia(
@@ -486,20 +551,29 @@ impl EventLoop {
                 },
             )) => {
                 if let Some(sender) = self.pending_get_providers.remove(&id) {
-                    let _ = sender.send(Ok(providers));
+                    let mut provider_addrs = HashMap::new();
+                    // Iterate over the discovered providers and print their known addresses.
+                    for provider in &providers {
+                        let addrs = self.get_peer_addresses(provider);
+                        provider_addrs.insert(*provider, addrs.clone());
+                        //tracing::info!("Provider {} has addresses: {:?}", provider, addrs);
+                    }
+                    let _ = sender.send(Ok(provider_addrs));
                     // Stop the query after first found set of providers.
                     self.swarm.behaviour_mut().kademlia.query_mut(&id).map(|mut q| q.finish());
                 }
             }
             SwarmEvent::NewListenAddr { address, .. } => {
-                let local_peer_id = *self.swarm.local_peer_id();
-                println!(
-                    "Local node is listening on {:?}",
-                    address.with(Protocol::P2p(local_peer_id))
-                );
+                let local_peer_id = self.swarm.local_peer_id().clone();
+                let full_addr = address.with(Protocol::P2p(local_peer_id));
+                
+                // Update the shared state with the actual bound address.
+                *self.actual_listen_addr.lock().await = Some(full_addr.clone());
+                println!("Local node is listening on {:?}", *self.actual_listen_addr.lock().await);
             }
             SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                 if endpoint.is_dialer() {
+                    // Handle any pending dial command first.
                     if let Some(sender) = self.pending_dial.remove(&peer_id) {
                         let _ = sender.send(Ok(()));
                     }
@@ -524,11 +598,22 @@ impl EventLoop {
     async fn handle_command(&mut self, command: Command) {
         match command {
             Command::StartListening { addr, sender } => {
+
                 let result = self.swarm
                     .listen_on(addr)
                     .map(|_listener_id| ())
                     .map_err(|e| anyhow!("Failed to listen on address: {}", e));
                 let _ = sender.send(result);
+            }
+            Command::Advertise {
+                peer_id,
+                address,
+                sender
+            } => {
+                
+                self.swarm.add_external_address(address.clone());
+                self.swarm.behaviour_mut().kademlia.add_address(&peer_id, address);
+                let _ = sender.send(Ok(()));
             }
             Command::Dial {
                 peer_id,
@@ -536,8 +621,10 @@ impl EventLoop {
                 sender,
             } => {
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
+                    
                     // Add to kademlia so we remember addresses for peer.
                     self.swarm.behaviour_mut().kademlia.add_address(&peer_id, peer_addr.clone());
+
                     // Actually dial it:
                     let dial_res = self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id)));
                     match dial_res {
@@ -572,12 +659,13 @@ impl EventLoop {
                 self.pending_get_providers.insert(query_id, sender);
             }
             Command::RequestFile { peer, file_name, sender } => {
+
                 let mut control = self.swarm.behaviour_mut().stream.new_control();
                 let open_result = control.open_stream(peer, FILE_PROTOCOL).await;
                 let res =
                     match open_result {
                         Ok(stream) => {
-                            tracing::debug!("Successfully opened stream to peer: {}", peer);
+                            // tracing::debug!("Successfully opened stream to peer: {}", peer);
                             tracing::debug!("Writing file name '{}' to the stream...", file_name);
 
                             // Split the stream into read and write halves
@@ -602,17 +690,20 @@ impl EventLoop {
 
                                     tracing::debug!("Write side of the stream successfully closed.");
 
-                                    let raw_final_path = format!("{}{}", get_storage_dir(), file_name);
-                                    let final_path = std::path::Path::new(&raw_final_path);
-                                    tracing::debug!("Calling receive_file_with_hash for file: {:?}", final_path);
+                                    let directory_path = format!("{}", get_storage_dir());
+                                    let dir_path = std::path::Path::new(&directory_path);
+                                    //tracing::debug!("Calling receive_file_with_hash for file: {:?}", dir_path);
 
-                                    match receive_file_with_hash(reader, final_path).await {
-                                        Ok(_) => {
-                                            tracing::debug!("File received successfully at {:?}", final_path);
+                                    match receive_file_with_hash(reader, dir_path).await {
+                                        Ok(cid) => {
+                                            tracing::debug!("File received successfully at {:?}", dir_path);
+                                            
+                                            let final_path = format!("{}{}.bin", dir_path.display(), cid);
+
                                             match std::fs::read(final_path) {
                                                 Ok(file_bytes) => {
-                                                    tracing::debug!("File read into memory successfully. Bytes: {}", file_bytes.len());
-                                                    Ok(file_bytes)
+                                                    //tracing::debug!("File read into memory successfully. Bytes: {}", file_bytes.len());
+                                                    Ok((file_bytes, cid))
                                                 }
                                                 Err(e) => {
                                                     //tracing::debug!("Failed to read file from disk: {e}");
@@ -629,7 +720,7 @@ impl EventLoop {
                             }
                         }
                         Err(e) => {
-                            tracing::debug!("Failed to open stream to peer {}: {e}", peer);
+                            //tracing::debug!("Failed to open stream to peer {}: {e}", peer);
                             Err(anyhow!("Failed to open stream to peer {}: {}", peer, e))
                         }
                     };

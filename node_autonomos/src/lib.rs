@@ -1,23 +1,17 @@
 pub mod autonomos;
-
-use content_hashing::{blakecheck, get_storage_dir};
+use content_hashing::{blakecheck::send_file_with_hash, get_storage_dir};
 use db_access::get_midcid_pairs;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf, collections::HashMap};
 use futures::{prelude::*, StreamExt};
-use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol, rendezvous};
+use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
-use tracing::{debug, error}; 
+use tracing; 
 use autonomos::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt; // try to make compatibility between tokio and libp2p stream
-use tokio_stream;
-use futures::channel::mpsc;
-use tokio::io::{BufReader, AsyncBufReadExt};
-use tokio_util::compat::FuturesAsyncReadCompatExt;
-
 
 pub struct AutonomosManager {
     pub client: Client,
@@ -43,28 +37,14 @@ impl AutonomosManager{
         let (
             mut client,
             event_stream,
-            composite_event_loop,
+            composite_event_loop
         ) = autonomos::new(secret_seed).await?;
-        
-        // let event_loop = Arc::new(Mutex::new(composite_event_loop));
 
-        // // Spawn the composite in the background.
-        // {
-        //     let event_loop_clone = event_loop.clone();
-        //         tokio::spawn(async move {
-        //         event_loop_clone.lock().await.run().await;
-        //     });        
-        // }
-
-         // Extract the shared listen address handle from the event loop.
+        // Extract the shared listen address handle from the event loop.
         // This field is an Arc<Mutex<Option<Multiaddr>>> that is updated by the event loop.
         let listen_addr_handle = composite_event_loop.actual_listen_addr.clone();
 
         // Spawn the event loop using its spawn() method.
-        // This consumes the composite event loop and runs it in its own task.
-               // Wrap the original event loop in an Arc so that other functions can later
-        // send commands (if needed) via locking.
-        // (Note: Direct mutable access to the swarm is discouraged; instead, use the client.)
         let event_loop = Arc::new(Mutex::new(composite_event_loop));
 
         let local_peer_id: PeerId = {
@@ -137,7 +117,7 @@ impl AutonomosManager{
             peer,
             midcid_memory_register: Arc::new(Mutex::new(current_persistent_midcid)),
         })
-    } 
+    }
 
     // checking existence of persistent mid and cid data, return an HashMap
     pub async fn access_the_db() -> Result<HashMap::<String, (PathBuf, String)>, Box<dyn Error>> {
@@ -165,13 +145,37 @@ impl AutonomosManager{
         Ok(file_registry)
     }
 
+    // checking existence of persistent mid and push it to DHT
+    pub async fn init_publishing_mid_to_dht(&mut self) -> Result<(), Box<dyn Error>> {
+        // pub const STORAGE_DIR: &str = "./data/content/";
+
+        let pairs = get_midcid_pairs().await?;
+        
+        // if pairs are empty just return        
+        if pairs.is_empty() {
+            return Ok(());
+        }
+        
+        for (mid, _cid) in &pairs {
+
+            // pushing the brand new MID to the DHT
+            let _publish_dht= self.spread_ntwk(mid.to_string()).await;
+        }
+        Ok(())
+    }
+
     // Updating the HashMap of midcid to let Inbound Request been fulfilled
     pub async fn register_midcid_memory(&mut self, mid_as_hex: String, path_dir: PathBuf, cid_as_hex: String) -> Result<(), Box<dyn Error>>{
        
         let path = format!("{}{}.bin", path_dir.display(), cid_as_hex);
         let path_cid = PathBuf::from(path);
-        let mut mirroring_midcid = self.midcid_memory_register.lock().await;
-        mirroring_midcid.insert(mid_as_hex, (path_cid, cid_as_hex));
+        {
+            let mut mirroring_midcid = self.midcid_memory_register.lock().await;
+            mirroring_midcid.insert(mid_as_hex.clone(), (path_cid, cid_as_hex));
+        }
+
+        // pushing the brand new MID to the DHT
+        let _publish_dht= self.spread_ntwk(mid_as_hex.to_string()).await;
        
         Ok(())
     }
@@ -190,7 +194,6 @@ impl AutonomosManager{
         }
         Ok(())
     }
-
 
     pub async fn launch_inbound_request_task(&mut self) -> Result<(), Box<dyn Error>> {
         let midcid_memory_register_clone = self.midcid_memory_register.clone();
@@ -220,7 +223,7 @@ impl AutonomosManager{
                             tokio::spawn(async move {
                                 tracing::debug!("Handling file request from {:?} for file '{}'", peer, file_name_clone);
 
-                                if let Err(e) = blakecheck::send_file_with_hash(writer, &path_cid, &local_cid).await {
+                                if let Err(e) = send_file_with_hash(writer, &path_cid, &local_cid).await {
                                     tracing::debug!("Error sending file: {} look path: {}", e, path_cid.display());
                                 }
                             });
@@ -228,7 +231,10 @@ impl AutonomosManager{
                             tracing::debug!("Peer {:?} requested unknown file {}", peer, file_name);
                         }
                     }
-                    _ => {} // Optionally handle other events
+                    // For simplicity, skip unimplemented events. other => todo!("{:?}", other),
+                    other => {
+                        tracing::warn!("Unexpected event_stream: {:?}", other);
+                    }
                 }
             }
         });
@@ -237,7 +243,6 @@ impl AutonomosManager{
     }
 
 
-    
     pub async fn get_file(&mut self, name: String) -> Result<String, Box<dyn Error >>{
 
         let peer_addr = if let Some(addr) = &self.peer {
@@ -251,6 +256,8 @@ impl AutonomosManager{
                 println!("No providers found for file {}.", name);
                 return Err(format!("Could not find provider for file {}", name).into());
             }
+
+            println!("\nMany here\n{:?}\n", provider_map);
 
             // Select the first provider that has at least one address.
             let (provider_peer_id, addrs) = provider_map.into_iter()
@@ -324,7 +331,7 @@ impl AutonomosManager{
     /// namespace: the namespace in which to register.
     pub async fn register_rendezvous(&mut self, rendezvous_addr: Multiaddr, rendezvous_peer: PeerId, namespace: &'static str) -> Result<(), Box<dyn Error>> {
         
-        debug!("register_rendezvous fn has been called");
+        tracing::debug!("register_rendezvous fn has been called");
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();

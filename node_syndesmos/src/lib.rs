@@ -1,17 +1,18 @@
-
 pub mod syndesmos;
-use content_hashing::blakecheck;
+use content_hashing::{blakecheck::send_file_with_hash, get_storage_dir};
+use db_access::get_midcid_pairs;
 use tokio::time::Duration;
-use std::{pin::Pin, error::Error, path::PathBuf};
+use std::{pin::Pin, error::Error, path::PathBuf, collections::HashMap};
 use futures::{prelude::*, StreamExt};
-use libp2p::{core::Multiaddr, multiaddr::Protocol};
+use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
-
+use tracing;
 use syndesmos::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::compat::FuturesAsyncWriteCompatExt; // try to make compatibility between tokio and libp2p stream
+
 pub struct SyndesmosManager {
     pub client: Client,
     pub event_stream: Pin<Box<dyn Stream<Item = Event> + Send>>,
@@ -20,9 +21,9 @@ pub struct SyndesmosManager {
     pub listen_address: Option<Multiaddr>,
     /// Peer to dial (optional) => bootstrapping or relaying
     pub peer: Option<Multiaddr>,
+    midcid_memory_register: Arc<Mutex<HashMap<String, (PathBuf, String)>>>,
 
 }
-
 
 impl SyndesmosManager{
 
@@ -33,21 +34,29 @@ impl SyndesmosManager{
             .with_env_filter(EnvFilter::from_default_env())
             .try_init();
 
-        let (mut client, event_stream, composite_event_loop) = syndesmos::new(secret_seed).await?;
-        
+        let (
+            mut client,
+            event_stream,
+            composite_event_loop
+        ) = syndesmos::new(secret_seed).await?;
+
+        // Extract the shared listen address handle from the event loop.
+        // This field is an Arc<Mutex<Option<Multiaddr>>> that is updated by the event loop.
+        let listen_addr_handle = composite_event_loop.actual_listen_addr.clone();
+
+        // Spawn the event loop using its spawn() method.
         let event_loop = Arc::new(Mutex::new(composite_event_loop));
 
-
-         // Spawn the composite in the background.
+        let local_peer_id: PeerId = {
+        let guard = event_loop.lock().await;
+            (*guard).local_peer_id()
+            };
         {
-            let event_loop_clone = event_loop.clone();
-                let local_peer_id = event_loop_clone.lock().await.local_peer_id();
-                println!("Local PeerId: {}", local_peer_id);
-
-                tokio::spawn(async move {
-                event_loop_clone.lock().await.run().await;
-            });
-        }
+        let event_loop_clone = event_loop.clone();
+            tokio::spawn(async move {
+               event_loop_clone.lock().await.run().await;
+        });
+    }
 
         // Listen on the user-provided address, or fallback to /ip4/0.0.0.0/udp/0/quic-v1.
         match &listen_address {
@@ -77,17 +86,104 @@ impl SyndesmosManager{
                 .expect("Dial to succeed");
         }
 
+         let addr_to_advertise = match &listen_address {
+            Some(user_addr) => user_addr.clone(),
+            None => {
+                loop {
+                    let maybe_addr = {
+                        let guard = listen_addr_handle.lock().await;
+                        (*guard).clone()
+                    };
+                    if let Some(addr) = maybe_addr {
+                        // println!("Got ephemeral address: {}", addr);
+                        break addr;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        };
+
+        // 8) Advertise on the DHT
+        client.advertise(local_peer_id, addr_to_advertise).await?;
+
+        // checking existence of persistent mid and cid data and loading (necessary when node has been switched off)
+        let current_persistent_midcid = Self::access_the_db().await?;
+
         Ok(Self {
             client,
             event_stream: Box::pin(event_stream),
             event_loop,
             listen_address,
             peer,
+            midcid_memory_register: Arc::new(Mutex::new(current_persistent_midcid)),
         })
-    }    
+    }
+
+    // checking existence of persistent mid and cid data, return an HashMap
+    pub async fn access_the_db() -> Result<HashMap::<String, (PathBuf, String)>, Box<dyn Error>> {
+        // pub const STORAGE_DIR: &str = "./data/content/";
+        
+        let tmp_constant_path = get_storage_dir();
+
+        let mut file_registry = HashMap::<String, (PathBuf, String)>::new();
+
+        let pairs = get_midcid_pairs().await?;
+        
+        // if pairs are empty just return empty hashmap        
+        if pairs.is_empty() {
+            return Ok(file_registry);
+        }
+        
+        for (mid, cid) in &pairs {
+            let path = format!("{}{}.bin", tmp_constant_path, cid);
+            let path_cid = PathBuf::from(path);
+            println!("MID: {} -> CID: {}", mid, cid);
+            file_registry.insert(mid.to_string(), (path_cid, cid.to_string()));
+        }
+        
+        //tracing::debug!("\nAccess DB MID: {}\nCID: {}", midhex, cidhex);
+        Ok(file_registry)
+    }
+
+    // checking existence of persistent mid and push it to DHT
+    pub async fn init_publishing_mid_to_dht(&mut self) -> Result<(), Box<dyn Error>> {
+        // pub const STORAGE_DIR: &str = "./data/content/";
+
+        let pairs = get_midcid_pairs().await?;
+        
+        // if pairs are empty just return        
+        if pairs.is_empty() {
+            return Ok(());
+        }
+        
+        for (mid, _cid) in &pairs {
+
+            // pushing the brand new MID to the DHT
+            let _publish_dht= self.spread_ntwk(mid.to_string()).await;
+        }
+        Ok(())
+    }
+
+    // Updating the HashMap of midcid to let Inbound Request been fulfilled
+    pub async fn register_midcid_memory(&mut self, mid_as_hex: String, path_dir: PathBuf, cid_as_hex: String) -> Result<(), Box<dyn Error>>{
+       
+        let path = format!("{}{}.bin", path_dir.display(), cid_as_hex);
+        let path_cid = PathBuf::from(path);
+        {
+            let mut mirroring_midcid = self.midcid_memory_register.lock().await;
+            mirroring_midcid.insert(mid_as_hex.clone(), (path_cid, cid_as_hex));
+        }
+
+        // pushing the brand new MID to the DHT
+        let _publish_dht= self.spread_ntwk(mid_as_hex.to_string()).await;
+       
+        Ok(())
+    }
+
 
     pub async  fn spread_ntwk(&mut self, name: String) -> Result<(), Box<dyn Error>> {
-         // Advertise self as a provider of `name`.
+
+        // Advertise self as a provider of `name`.
         match self.client.start_providing(name.clone()).await {
             Ok(_) => {
                 tracing::debug!("Successfully started providing '{}'.", name);
@@ -99,89 +195,92 @@ impl SyndesmosManager{
         Ok(())
     }
 
-    pub async fn provide_file(&mut self, path: PathBuf, name: String, cid: String) -> Result<(), Box<dyn Error>> {
+    pub async fn launch_inbound_request_task(&mut self) -> Result<(), Box<dyn Error>> {
+        let midcid_memory_register_clone = self.midcid_memory_register.clone();
 
-        // Loop and respond to inbound file requests that match `name`.
-        loop {
+        // Take ownership of the current event stream and replace it with an empty stream.
+        let mut event_stream = std::mem::replace(&mut self.event_stream, Box::pin(futures::stream::empty()));
+
+        // Spawn a local task to process inbound file request events directly.
+        tokio::spawn(async move {
             tracing::debug!("Waiting for inbound file requests...");
-            match self.event_stream.next().await {
-                Some(syndesmos::Event::InboundFileRequest { peer, file_name, stream }) => {
-                    // 1. check if the requested file name matches our `name`.
-                    tracing::debug!("Lib.rs checks: {} {}", file_name, name);
-                    if file_name == *name {
-                        tracing::debug!("Inbound request from {peer} matched our file '{file_name}'. Calling send_file_with_hash now!");
-                            // 1) We want to send that file in chunks with BLAKE3 verification.
-                        // So we call chunkblake::send_file_with_hash:
-                        // convertion stream (lipp2p) to tokio
-                        let (_reader, writer) = stream.split();
-                        let writer = writer.compat_write();
-                        match blakecheck::send_file_with_hash(writer, &path, &cid).await {
-                            Ok(()) => {
-                                tracing::debug!("Sent file {} to peer {:?}", name, peer);
-                            }
-                            Err(e) => {
-                                tracing::debug!("Error sending file: {e}");
-                            }
+            while let Some(event) = event_stream.next().await {
+                match event {
+                    syndesmos::Event::InboundFileRequest { peer, file_name, stream } => {
+                        tracing::debug!("Received inbound file request for: {}", file_name);
+
+                        let midcid_memory_registry = midcid_memory_register_clone.lock().await;
+
+                        if let Some((path, cid)) = midcid_memory_registry.get(&file_name) {
+                            let path_cid = path.clone();
+                            let local_cid = cid.clone();
+                            let file_name_clone = file_name.clone();
+
+                            // Use the stream directly.
+                            let (_reader, writer) = stream.split();
+                            let writer = writer.compat_write();
+
+                            tokio::spawn(async move {
+                                tracing::debug!("Handling file request from {:?} for file '{}'", peer, file_name_clone);
+
+                                if let Err(e) = send_file_with_hash(writer, &path_cid, &local_cid).await {
+                                    tracing::debug!("Error sending file: {} look path: {}", e, path_cid.display());
+                                }
+                            });
+                        } else {
+                            tracing::debug!("Peer {:?} requested unknown file {}", peer, file_name);
                         }
-                    } else {
-                    tracing::debug!("Peer {:?} requested unknown file {file_name}", peer);
-                    // Possibly write some error bytes back, or do nothing
+                    }
+                    // For simplicity, skip unimplemented events. other => todo!("{:?}", other),
+                    other => {
+                        tracing::warn!("Unexpected event_stream: {:?}", other);
                     }
                 }
-                // For simplicity, skip unimplemented events. other => todo!("{:?}", other),
-                other => {
-                    tracing::warn!("Unexpected event_stream: {:?}", other);
-                }
             }
-        }
+        });
+
+        Ok(())
     }
 
-    pub async fn get_file(&mut self, name: String) -> Result<(), Box<dyn Error >>{
+
+    pub async fn get_file(&mut self, name: String) -> Result<String, Box<dyn Error >>{
 
         let peer_addr = if let Some(addr) = &self.peer {
             addr.clone()
         } else {
 
-            // Retry mechanism: attempt multiple times until we find a provider.
-            let mut attempts = 0;
-            let max_attempts = 2;
-            let mut provider_record: Option<Multiaddr> = None;
-            while attempts < max_attempts {
-                attempts += 1;
-            // Optionally wait a short time for DHT propagation.
-            tokio::time::sleep(Duration::from_secs(3)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
             
-            // Query providers for the file name.
-            let providers = self.client.get_providers(name.clone()).await?;
-            println!("Attempt {}: Providers for {}: {:?}", attempts, name, providers);
-            
-            if !providers.is_empty() {
-                // Select the first provider.
-                let provider_peer_id = *providers.iter().next().unwrap();
-                println!("Found provider PeerId: {:?}", provider_peer_id);
-                
-                // Try to retrieve known addresses for that provider.
-                let remote_addr: Option<Multiaddr> = {
-                    let known_addrs: Vec<Multiaddr> = {
-                        let mut event_loop_lock = self.event_loop.lock().await;
-                        event_loop_lock.get_peer_addresses(&provider_peer_id)
-                    };
-                    known_addrs.first().map(|addr| addr.clone().with(Protocol::P2p(provider_peer_id)))
-                };
-                
-                if let Some(addr) = remote_addr {
-                    provider_record = Some(addr);
-                    break;
-                } else {
-                    println!("No known addresses for provider {:?}; retrying...", provider_peer_id);
-                }
-            } else {
-                println!("No providers found on attempt {}.", attempts);
+            let provider_map: HashMap<PeerId, Vec<Multiaddr>> = self.client.get_providers(name.clone()).await?;
+            if provider_map.is_empty() {
+                println!("No providers found for file {}.", name);
+                return Err(format!("Could not find provider for file {}", name).into());
             }
-        }
-        provider_record.ok_or_else(|| format!("Could not find provider for file {}", name))?
-    };
 
+            println!("\nMany here\n{:?}\n", provider_map);
+
+            // Select the first provider that has at least one address.
+            let (provider_peer_id, addrs) = provider_map.into_iter()
+                .find(|(_, addrs)| !addrs.is_empty())
+                .ok_or_else(|| format!("Could not find a provider with a known address for file {}", name))?;
+
+            println!("Found provider PeerId: {:?}", provider_peer_id);
+            println!("Known addresses: {:?}", addrs);
+
+            // Pick the first address and attach the peer ID (if not already attached).
+            let peer_addr = addrs.first()
+                .map(|addr| {
+                    if !addr.iter().any(|p| matches!(p, Protocol::P2p(_))) {
+                        addr.clone().with(Protocol::P2p(provider_peer_id))
+                    } else {
+                        addr.clone()
+                    }
+                })
+                .ok_or_else(|| format!("Provider {} has no addresses", provider_peer_id))?;
+
+            peer_addr
+        };
+         
         // Now, extract the PeerId from the full multiaddr.
         let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
             return Err("Determined peer address does not contain a PeerId.".into());
@@ -198,24 +297,31 @@ impl SyndesmosManager{
             .get_providers(name.clone())
             .await?
             .into_iter()
-            .map(|p| {
+            .map(|(peer, _addrs)| {
                 let mut client_clone = self.client.clone();
                 let name = name.clone();
-                async move { client_clone.request_file(p, name).await }.boxed()
-            });
-        // OLD Working Try requesting the file from each provider until one succeeds.
-        // let requests = providers.into_iter().map(|p| {
-        //     let mut self.client = self.client.clone();
-        //     let name = name.clone();
-        //     async move { self.client.request_file(p, name).await }.boxed()
-        // });
+                async move { 
+                   let result = client_clone.request_file(peer, name).await;
+                    match &result {
+                        Ok((file_bytes, cid)) => {
+                            tracing::debug!("Provider {} succeeded with CID: {}", peer, cid);
+                        }
+                        Err(e) => {
+                            tracing::debug!("Provider {} failed: {:?}", peer, e);
+                        }
+                    }
+                    result
+                }
+                .boxed()
+        });
 
-        let _ = futures::future::select_ok(requests)
+        // select_ok returns a tuple (Vec<u8>, String) where .0 is the successful result.
+        let (result, _remaining) = futures::future::select_ok(requests)
             .await
-            .map_err(|_| "None of the providers returned file.")?
-            .0;
+            .map_err(|_| "None of the providers returned file.")?;
         
-        Ok(())
+        let (_file_bytes, cid) = result;
+        
+        Ok(cid)
     }
-
 }

@@ -2527,6 +2527,7 @@ dependencies = [
  "blake3",
  "clap",
  "content-hashing",
+ "db-access",
  "futures",
  "libp2p",
  "libp2p-stream",

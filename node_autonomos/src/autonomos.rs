@@ -1,12 +1,10 @@
 use anyhow::{anyhow, Error as AnyhowError};
-use tracing_subscriber::fmt::format;
-use crate::blakecheck;
+use content_hashing::blakecheck::receive_file_with_hash;
 // use std::io::Write;
 use libp2p::kad::KBucketKey;
 
 use std::{
-    collections::{hash_map, HashMap, HashSet},
-    //time::Duration,
+    collections::{hash_map, HashMap},
     sync::Arc,
 };
 
@@ -208,7 +206,7 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
                 rendezvous: rendezvous_behaviour,
             }
         })?
-        .with_swarm_config(|config| config.with_idle_connection_timeout(Duration::from_secs(5)))
+        .with_swarm_config(|config| config.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
 
     // Set up channels for client commands and event notifications.
@@ -217,7 +215,7 @@ pub async fn new(secret_key_seed: Option<u8>) -> Result<(Client, impl FuturesStr
 
     // Create the shared variable for the actual listen address.
     let actual_listen_addr: Arc<Mutex<Option<Multiaddr>>> = Arc::new(Mutex::new(None));
-    
+
     Ok((
         Client { sender: command_sender },
         event_receiver,
@@ -237,7 +235,7 @@ impl Client {
         &mut self,
         addr: Multiaddr,
     ) -> Result<(), AnyhowError> {
-    
+
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::StartListening { addr, sender })
@@ -471,13 +469,19 @@ impl EventLoop {
     /// Returns the known multiaddresses for the given `peer_id` by iterating over the routing table.
     pub fn get_peer_addresses(&mut self, target: &PeerId) -> Vec<Multiaddr> {
         
+        // Convert your target PeerId into a KBucket key.
         let target_key = KBucketKey::new(target.to_bytes());
+        
         let mut addrs = Vec::new();
 
-        // Iterate over all non-empty buckets.
+        // Iterate over all buckets in the routing table.
         for bucket in self.swarm.behaviour_mut().kademlia.kbuckets() {
+            // Each bucket contains entries that have a key and associated addresses.
             for entry in bucket.iter() {
+                // Compare the entry's peer id with the target.
                 if *entry.node.key == target_key {
+                    // `entry.node.value()` is typically a collection of Multiaddrs.
+                    // The API might vary; adjust as needed.
                     addrs.extend(entry.node.value.iter().cloned());
                 }
             }
@@ -519,7 +523,7 @@ impl EventLoop {
     }
 
     async fn handle_swarm_event(&mut self, event: SwarmEvent<CompositeEvent>) {
-    
+
         let mut cookie = None;
         match event {
 
@@ -671,7 +675,7 @@ impl EventLoop {
                         // Inform the pending registration command about the result of registration.
                         let _ = reg_sender.send(register_result);
                     }
-                }      
+                }
             }
             SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                 if let Some(peer_id) = peer_id {
@@ -680,7 +684,12 @@ impl EventLoop {
                     }
                 }
             }
-            _ => {}
+            SwarmEvent::ConnectionClosed { peer_id, .. } => {
+            tracing::info!("Disconnected from {}", peer_id);
+            }
+            other => {
+                tracing::debug!("Unhandled event: {:?}", other);
+            }
         }
     }
 
@@ -729,8 +738,9 @@ impl EventLoop {
                 sender,
             } => {
                 if let hash_map::Entry::Vacant(e) = self.pending_dial.entry(peer_id) {
+                    
                     // Add to kademlia so we remember addresses for peer.
-                    //self.swarm.behaviour_mut().kademlia.add_address(&peer_id, peer_addr.clone());
+                    self.swarm.behaviour_mut().kademlia.add_address(&peer_id, peer_addr.clone());
 
                     // Actually dial it:
                     let dial_res = self.swarm.dial(peer_addr.with(Protocol::P2p(peer_id)));
@@ -777,7 +787,7 @@ impl EventLoop {
 
                             // Split the stream into read and write halves
                             let (reader, mut writer) = stream.split();
-                            
+
                             // Conversion from libp2p to tokio
                             let reader = reader.compat(); 
                             if let Err(e) = writer.write_all(file_name.as_bytes()).await {
@@ -801,7 +811,7 @@ impl EventLoop {
                                     let dir_path = std::path::Path::new(&directory_path);
                                     //tracing::debug!("Calling receive_file_with_hash for file: {:?}", dir_path);
 
-                                    match blakecheck::receive_file_with_hash(reader, dir_path).await {
+                                    match receive_file_with_hash(reader, dir_path).await {
                                         Ok(cid) => {
                                             tracing::debug!("File received successfully at {:?}", dir_path);
                                             
@@ -813,13 +823,13 @@ impl EventLoop {
                                                     Ok((file_bytes, cid))
                                                 }
                                                 Err(e) => {
-                                                    tracing::debug!("Failed to read file from disk: {e}");
+                                                    //tracing::debug!("Failed to read file from disk: {e}");
                                                     Err(anyhow!("Failed to read file from disk: {}", e))
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            tracing::debug!("Error during receive_file_with_hash: {e}");
+                                            //tracing::debug!("Error during receive_file_with_hash: {e}");
                                             Err(anyhow!("Error during receive_file_with_hash: {}", e))
                                         }
                                     }
@@ -827,7 +837,7 @@ impl EventLoop {
                             }
                         }
                         Err(e) => {
-                            // tracing::debug!("Failed to open stream to peer {}: {e}", peer);
+                            //tracing::debug!("Failed to open stream to peer {}: {e}", peer);
                             Err(anyhow!("Failed to open stream to peer {}: {}", peer, e))
                         }
                     };

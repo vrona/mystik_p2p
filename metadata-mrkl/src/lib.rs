@@ -47,8 +47,10 @@ impl Metadata {
         
         let leaves = self.leaf_basis_hashing().await?;
 
-        let merkletree = RSMerkleTree::new(leaves.clone()).await?;
-
+        let merkletree = RSMerkleTree::new(leaves.clone())
+            .await?
+            .inner_tree();
+        
         let mut persistentstorage = PersistentRsMerkle::new(None, Some(merkletree)).await?;
 
          // Store tree, and root if needed
@@ -72,16 +74,9 @@ impl Metadata {
         
         let leaves = self.leaf_basis_hashing().await?;
 
-        let merkletree = RSMerkleTree::new(leaves.clone()).await?;
+        let mut merkletree = RSMerkleTree::new(leaves.clone()).await?;
 
-        let persistentstorage = PersistentRsMerkle::new(None, Some(merkletree)).await?;
-
-        let root_hex = persistentstorage
-            .tree
-            .as_ref()
-            .ok_or("Merkle tree not found")?
-            .root_hex()
-            .ok_or("Could not retrieve Merkle root")?;
+        let root_hex = merkletree.temporal_root_tree().await?;
         
         println!("Transcient MID: {}", root_hex);
         Ok(root_hex)

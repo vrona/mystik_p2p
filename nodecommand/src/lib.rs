@@ -170,6 +170,7 @@ pub async fn remove_file(file_name: &str, file_type: &str, secret: &str)-> Resul
     return Ok(false)
 }
 
+// TO DEL
 pub async fn local_path_to_cid(mid_as_hex: &str)-> Result<PathBuf, Box<dyn Error>> {
     
     let cid_as_hex = midhex_to_cidhex(mid_as_hex).await?;
@@ -188,6 +189,23 @@ pub async fn propose_mid_ntwk(file_name: &str, file_type: &str, secret: &str)-> 
     // init the metadata
     let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
 
+    // temporal creation  metadata's MID via 1st level of Merkle (classic tree) without persistent storing of MID
+    let mid_as_key = hex_to_bytes::<32>(&metadata
+        .transient_tree()
+        .await?)
+        .await?;
+
+    let mid_as_hex = bytes_to_hex::<32>(mid_as_key).await;
+   
+    println!("mid_as_key propose_cid_ntwk: {:?}", mid_as_hex);
+    Ok(mid_as_hex)
+}
+
+pub async fn create_persist_mid_ntwk(file_name: &str, file_type: &str, secret: &str)-> Result<String, Box<dyn Error>> {
+
+    // init the metadata
+    let mut metadata = Metadata::new(file_name.to_string(), file_type.to_string(), secret.to_string());
+
     // 1st level of Merkle (classic tree) get the metadata's MID
     let mid_as_key = hex_to_bytes::<32>(&metadata.create_tree(true).await?).await?;
 
@@ -201,7 +219,7 @@ pub async fn propose_mid_ntwk(file_name: &str, file_type: &str, secret: &str)-> 
 
     let mid_as_hex = bytes_to_hex::<32>(mid_as_key).await;
    
-    println!("mid_as_key propose_cid_ntwk: {:?}", mid_as_hex);
+    println!("Persistent MID: {:?} created", mid_as_hex);
     Ok(mid_as_hex)
 }
 

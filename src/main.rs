@@ -255,6 +255,16 @@ async fn command_loop_syndesmos(
                                 match result {
                                     Ok(cid_as_hex) => {
                                         println!("File transmitted successfully!");
+
+                                        // create persistently MID
+                                        match nodecommand::create_persist_mid_ntwk(file_name, file_type, secret).await{
+                                            Ok(persistent_mid) => {
+                                                println!("Persistent MID {} creation succeeded!", persistent_mid);
+                                            },
+                                            Err(e) => eprintln!("Error Persistent MID creation: {}", e),
+                                        }
+
+                                        // add MID/CID pair to local sparse merkle tree
                                         match nodecommand::import_ntwk_file(&returned_mid_hex, &cid_as_hex).await {
                                             Ok(()) => println!("Import succeeded!"),
                                             Err(e) => eprintln!("Error importing file: {}", e),
@@ -411,6 +421,16 @@ async fn command_loop_autonomos(
                                 match result {
                                     Ok(cid_as_hex) => {
                                         println!("File transmitted successfully!");
+
+                                        // create persistently MID
+                                        match nodecommand::create_persist_mid_ntwk(file_name, file_type, secret).await{
+                                            Ok(persistent_mid) => {
+                                                println!("Persistent MID {} creation succeeded!", persistent_mid);
+                                            },
+                                            Err(e) => eprintln!("Error Persistent MID creation: {}", e),
+                                        }
+
+                                        // add MID/CID pair to local sparse merkle tree
                                         match nodecommand::import_ntwk_file(&returned_mid_hex, &cid_as_hex).await {
                                             Ok(()) => println!("Import succeeded!"),
                                             Err(e) => eprintln!("Error importing file: {}", e),

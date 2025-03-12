@@ -14,13 +14,29 @@ pub struct RSMerkleTree{
 }
 
 impl RSMerkleTree {
-    
+
     // initiate a Merkle Tree
-    pub async fn new(leaves: Vec<[u8; 32]>) -> Result<MerkleTree<Sha256>, Box<dyn Error>> {
+    pub async fn new(leaves: Vec<[u8; 32]>) -> Result<Self, Box<dyn Error>> {
         let rs_tree = MerkleTree::<Sha256>::from_leaves(&leaves);
-        Ok(rs_tree)
+        Ok(Self { leaves, rs_tree })
+    }
+
+    // return tree
+    pub fn inner_tree(self) -> MerkleTree<Sha256> {
+        self.rs_tree
+    }
+
+    // temporal root creation (persistent case is handled by PersistentRsMerkle Tree)
+    pub async fn temporal_root_tree(&mut self) -> Result<String, Box<dyn Error>> {
+
+        // tree not committed then root not permanent
+        match self.rs_tree.root_hex() {
+            Some(temp_root) => Ok(temp_root),
+            None => Err("Root not available".into()),
+        }
     }
 }
+
 
 pub struct PersistentRsMerkle {
     pub storage_path: String,

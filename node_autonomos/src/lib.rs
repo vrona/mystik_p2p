@@ -3,7 +3,7 @@ use content_hashing::{blakecheck::send_file_with_hash, get_storage_dir};
 use db_access::get_midcid_pairs;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf, collections::HashMap};
-use futures::{prelude::*, StreamExt};
+use futures::{prelude::*, StreamExt, future::{Abortable, AbortHandle}};
 use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
@@ -242,13 +242,115 @@ impl AutonomosManager{
         Ok(())
     }
 
+    pub async fn get_file(&mut self, name: String) -> Result<String, Box<dyn Error>>{
 
-    pub async fn get_file(&mut self, name: String) -> Result<String, Box<dyn Error >>{
+        // Case 1: we have a provided Peer
+        let providers: HashMap<PeerId, Vec<Multiaddr>> = if let Some(addr) = &self.peer{
+
+            // Extract PeerId from the provided peer.
+            let Some(Protocol::P2p(peer_id)) = addr.iter().last() else {
+                return Err("Provided peer address does not contain PeerId".into());
+            };
+            
+            let mut hm = HashMap::new();
+            hm.insert(peer_id, vec![addr.clone()]);
+            hm
+
+        } else {
+            // Case 2: we do not have provided peer.
+
+            // pausing a bit to let some propagation inside the network
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            
+            let provider_map: HashMap<PeerId, Vec<Multiaddr>> = self.client.get_providers(name.clone()).await?;
+            if provider_map.is_empty() {
+                println!("No providers found for file {}.", name);
+                return Err(format!("Could not find provider for file {}", name).into());
+            }
+
+            println!("\nMany here\n{:?}\n", provider_map);
+
+            // Select the first provider that has at least one address.
+            let (provider_peer_id, addrs) = provider_map.iter()
+                .find(|(_, addrs)| !addrs.is_empty())
+                .ok_or_else(|| format!("Could not find a provider with a known address for file {}", name))?;
+
+            println!("Found provider PeerId: {:?}", provider_peer_id);
+            println!("Known addresses: {:?}", addrs);
+
+            // Pick the first address and attach the peer ID (if not already attached).
+            let peer_addr = addrs.first()
+                .map(|addr| {
+                    if !addr.iter().any(|p| matches!(p, Protocol::P2p(_))) {
+                        addr.clone().with(Protocol::P2p(provider_peer_id.clone()))
+                    } else {
+                        addr.clone()
+                    }
+                })
+                .ok_or_else(|| format!("Provider {} has no addresses", provider_peer_id))?;
+
+            // Extract the PeerId from the full multiaddr.
+            let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
+                return Err("Determined peer address does not contain a PeerId.".into());
+                };
+            
+            // Dial the peer
+            self.client.dial(peer_id, peer_addr.clone()).await?;
+
+            // Use the provider_map from the lookup.
+            provider_map
+
+        };
+
+        // Optionally wait a short time for the DHT to propagate provider records.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+
+        // For each provider in the map, create an abortable file request future.
+        let abortable_requests: Vec<_> = providers.into_iter().map(|(peer, _addrs)| {
+            let (abort_handle, abort_registration) = AbortHandle::new_pair();
+            let mut client_clone = self.client.clone();
+            let name_clone = name.clone();
+            let request_future = Abortable::new(async move {
+                let result = client_clone.request_file(peer, name_clone).await;
+                match &result {
+                    Ok((file_bytes, cid)) => {
+                        tracing::debug!("Provider {} succeeded with CID: {}", peer, cid);
+                    }
+                    Err(e) => {
+                        tracing::debug!("Provider {} failed: {:?}", peer, e);
+                    }
+                }
+                result
+            }, abort_registration).boxed();
+            (request_future, abort_handle)
+        }).collect();
+
+        // Separate the futures and abort handles.
+        let (requests, abort_handles): (Vec<_>, Vec<_>) = abortable_requests.into_iter().unzip();
+
+        // Wait for the first successful response.
+        let (result, _remaining) = futures::future::select_ok(requests)
+            .await
+            .map_err(|_| "None of the providers returned file.")?;
+
+        // Abort all remaining futures.
+        for handle in abort_handles {
+            handle.abort();
+        }
+
+        let (_file_bytes, cid) = result?;
+
+        Ok(cid)
+    }
+
+
+    pub async fn get_file_old(&mut self, name: String) -> Result<String, Box<dyn Error >>{
 
         let peer_addr = if let Some(addr) = &self.peer {
             addr.clone()
         } else {
 
+            // pausing a bit to let some propagation inside the network
             tokio::time::sleep(Duration::from_secs(5)).await;
             
             let provider_map: HashMap<PeerId, Vec<Multiaddr>> = self.client.get_providers(name.clone()).await?;
@@ -280,7 +382,7 @@ impl AutonomosManager{
 
             peer_addr
         };
-         
+
         // Now, extract the PeerId from the full multiaddr.
         let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
             return Err("Determined peer address does not contain a PeerId.".into());

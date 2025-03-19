@@ -3,11 +3,11 @@ use content_hashing::{blakecheck::send_file_with_hash, get_storage_dir};
 use db_access::get_midcid_pairs;
 use tokio::time::Duration;
 use std::{pin::Pin, error::Error, path::PathBuf, collections::HashMap};
-use futures::{prelude::*, StreamExt, future::{Abortable, AbortHandle}};
+use futures::{prelude::*, StreamExt};
 use libp2p::{PeerId, core::Multiaddr, multiaddr::Protocol};
 use tracing_subscriber::EnvFilter;
 use std::io::{self, Write};
-use tracing;
+use tracing::{self, debug}; 
 use syndesmos::{Client, Event, EventLoop};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -141,7 +141,7 @@ impl SyndesmosManager{
             file_registry.insert(mid.to_string(), (path_cid, cid.to_string()));
         }
         
-        //tracing::debug!("\nAccess DB MID: {}\nCID: {}", midhex, cidhex);
+        //debug!("\nAccess DB MID: {}\nCID: {}", midhex, cidhex);
         Ok(file_registry)
     }
 
@@ -186,10 +186,10 @@ impl SyndesmosManager{
         // Advertise self as a provider of `name`.
         match self.client.start_providing(name.clone()).await {
             Ok(_) => {
-                tracing::debug!("Successfully started providing '{}'.", name);
+                debug!("Successfully started providing '{}'.", name);
             }
             Err(e) => {
-                tracing::debug!("Failed to start providing '{}': {}", name, e);
+                debug!("Failed to start providing '{}': {}", name, e);
             }
         }
         Ok(())
@@ -203,11 +203,11 @@ impl SyndesmosManager{
 
         // Spawn a local task to process inbound file request events directly.
         tokio::spawn(async move {
-            tracing::debug!("Waiting for inbound file requests...");
+            debug!("Waiting for inbound file requests...");
             while let Some(event) = event_stream.next().await {
                 match event {
                     syndesmos::Event::InboundFileRequest { peer, file_name, stream } => {
-                        tracing::debug!("Received inbound file request for: {}", file_name);
+                        debug!("Received inbound file request for: {}", file_name);
 
                         let midcid_memory_registry = midcid_memory_register_clone.lock().await;
 
@@ -221,14 +221,14 @@ impl SyndesmosManager{
                             let writer = writer.compat_write();
 
                             tokio::spawn(async move {
-                                tracing::debug!("Handling file request from {:?} for file '{}'", peer, file_name_clone);
+                                debug!("Handling file request from {:?} for file '{}'", peer, file_name_clone);
 
                                 if let Err(e) = send_file_with_hash(writer, &path_cid, &local_cid).await {
-                                    tracing::debug!("Error sending file: {} look path: {}", e, path_cid.display());
+                                    debug!("Error sending file: {} look path: {}", e, path_cid.display());
                                 }
                             });
                         } else {
-                            tracing::debug!("Peer {:?} requested unknown file {}", peer, file_name);
+                            debug!("Peer {:?} requested unknown file {}", peer, file_name);
                         }
                     }
                     // For simplicity, skip unimplemented events. other => todo!("{:?}", other),
@@ -242,27 +242,37 @@ impl SyndesmosManager{
         Ok(())
     }
 
-    pub async fn get_file(&mut self, name: String) -> Result<String, Box<dyn Error>>{
-
-        // Case 1: we have a provided Peer
-        let providers: HashMap<PeerId, Vec<Multiaddr>> = if let Some(addr) = &self.peer{
-
-            // Extract PeerId from the provided peer.
-            let Some(Protocol::P2p(peer_id)) = addr.iter().last() else {
-                return Err("Provided peer address does not contain PeerId".into());
-            };
-            
-            let mut hm = HashMap::new();
-            hm.insert(peer_id, vec![addr.clone()]);
-            hm
-
+    pub async fn get_file(&mut self, name: String) -> Result<String, Box<dyn Error >> {
+        
+        // Case 1: A peer is already provided.
+        if let Some(addr) = &self.peer {
+        let peer_addr = addr.clone();
+        // Extract the PeerId from the multiaddress.
+        let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
+            return Err("Provided peer address does not contain a PeerId.".into());
+        };
+        // Dial the provided peer.
+        self.client.dial(peer_id, peer_addr.clone()).await?;
+        // Wait a short time.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // Request the file.
+        match self.client.request_file(peer_id, name.clone()).await {
+            Ok((file_bytes, cid)) => {
+                debug!("Provider {} succeeded with CID: {}", peer_id, cid);
+                return Ok(cid);
+            }
+            Err(e) => {
+                debug!("Provider {} failed: {:?}", peer_id, e);
+                return Err(e.into());
+            }
+        }
+        
         } else {
-            // Case 2: we do not have provided peer.
-
             // pausing a bit to let some propagation inside the network
             tokio::time::sleep(Duration::from_secs(5)).await;
             
             let provider_map: HashMap<PeerId, Vec<Multiaddr>> = self.client.get_providers(name.clone()).await?;
+
             if provider_map.is_empty() {
                 println!("No providers found for file {}.", name);
                 return Err(format!("Could not find provider for file {}", name).into());
@@ -271,79 +281,54 @@ impl SyndesmosManager{
             println!("\nMany here\n{:?}\n", provider_map);
 
             // Select the first provider that has at least one address.
-            let (provider_peer_id, addrs) = provider_map.iter()
-                .find(|(_, addrs)| !addrs.is_empty())
-                .ok_or_else(|| format!("Could not find a provider with a known address for file {}", name))?;
+            for (provider_peer_id, addrs) in provider_map.into_iter() {
 
-            println!("Found provider PeerId: {:?}", provider_peer_id);
-            println!("Known addresses: {:?}", addrs);
+                if addrs.is_empty() {
+                    continue;
+                }
+                // Pick the first address and attach the peer ID (if not already attached).
+                let peer_addr = addrs.first()
+                    .map(|addr| {
+                        if !addr.iter().any(|p| matches!(p, Protocol::P2p(_))) {
+                            addr.clone().with(Protocol::P2p(provider_peer_id))
+                        } else {
+                            addr.clone()
+                        }
+                    })
+                    .ok_or_else(|| format!("Provider {} has no addresses", provider_peer_id))?;
 
-            // Pick the first address and attach the peer ID (if not already attached).
-            let peer_addr = addrs.first()
-                .map(|addr| {
-                    if !addr.iter().any(|p| matches!(p, Protocol::P2p(_))) {
-                        addr.clone().with(Protocol::P2p(provider_peer_id.clone()))
-                    } else {
-                        addr.clone()
-                    }
-                })
-                .ok_or_else(|| format!("Provider {} has no addresses", provider_peer_id))?;
+                println!("Trying provider: {:?}\nwith address: {:?}", provider_peer_id, peer_addr);
 
-            // Extract the PeerId from the full multiaddr.
-            let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
-                return Err("Determined peer address does not contain a PeerId.".into());
+                // Now, extract the PeerId from the full multiaddr.
+                let Some(Protocol::P2p(peer_id)) = peer_addr.iter().last() else {
+                    return Err("Determined peer address does not contain a PeerId.".into());
                 };
-            
-            // Dial the peer
-            self.client.dial(peer_id, peer_addr.clone()).await?;
 
-            // Use the provider_map from the lookup.
-            provider_map
+                // Dial the peer
+                if let Err(e) = self.client.dial(peer_id, peer_addr.clone()).await {
+                    debug!("Dialing provider {} failed: {:?}", provider_peer_id, e);
+                    continue;
+                }
 
-        };
+                // Optionally wait a short time for the DHT to propagate provider records.
+                tokio::time::sleep(Duration::from_secs(3)).await;
 
-        // Optionally wait a short time for the DHT to propagate provider records.
-        tokio::time::sleep(Duration::from_secs(3)).await;
-
-        // For each provider in the map, create an abortable file request future.
-        let abortable_requests: Vec<_> = providers.into_iter().map(|(peer, _addrs)| {
-            let (abort_handle, abort_registration) = AbortHandle::new_pair();
-            let mut client_clone = self.client.clone();
-            let name_clone = name.clone();
-            let request_future = Abortable::new(async move {
-                let result = client_clone.request_file(peer, name_clone).await;
-                match &result {
+                // Once connected, proceed to request the file.
+                match self.client.request_file(peer_id, name.clone()).await {
                     Ok((file_bytes, cid)) => {
-                        tracing::debug!("Provider {} succeeded with CID: {}", peer, cid);
+                        debug!("Provider {} succeeded with CID: {}", provider_peer_id, cid);
+                        return Ok(cid);
                     }
                     Err(e) => {
-                        tracing::debug!("Provider {} failed: {:?}", peer, e);
+                        debug!("Provider {} failed: {:?}", provider_peer_id, e);
                     }
                 }
-                result
-            }, abort_registration).boxed();
-            (request_future, abort_handle)
-        }).collect();
-
-        // Separate the futures and abort handles.
-        let (requests, abort_handles): (Vec<_>, Vec<_>) = abortable_requests.into_iter().unzip();
-
-        // Wait for the first successful response.
-        let (result, _remaining) = futures::future::select_ok(requests)
-            .await
-            .map_err(|_| "None of the providers returned file.")?;
-
-        // Abort all remaining futures.
-        for handle in abort_handles {
-            handle.abort();
+            }
+            return Err("None of the providers returned file.".into());
         }
-
-        let (_file_bytes, cid) = result?;
-
-        Ok(cid)
     }
 
-    pub async fn get_file_old(&mut self, name: String) -> Result<String, Box<dyn Error >>{
+    pub async fn get_file_out(&mut self, name: String) -> Result<String, Box<dyn Error >>{
 
         let peer_addr = if let Some(addr) = &self.peer {
             addr.clone()
@@ -404,10 +389,10 @@ impl SyndesmosManager{
                    let result = client_clone.request_file(peer, name).await;
                     match &result {
                         Ok((file_bytes, cid)) => {
-                            tracing::debug!("Provider {} succeeded with CID: {}", peer, cid);
+                            debug!("Provider {} succeeded with CID: {}", peer, cid);
                         }
                         Err(e) => {
-                            tracing::debug!("Provider {} failed: {:?}", peer, e);
+                            debug!("Provider {} failed: {:?}", peer, e);
                         }
                     }
                     result

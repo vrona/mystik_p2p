@@ -2,6 +2,7 @@ use anyhow::{anyhow, Error as AnyhowError};
 use content_hashing::blakecheck::receive_file_with_hash;
 // use std::io::Write;
 use libp2p::kad::KBucketKey;
+use tracing::{debug, error};
 
 use std::{
     collections::{hash_map, HashMap},
@@ -409,11 +410,11 @@ impl EventLoop {
         // a dedicated loop is often clearer.
         let mut incoming = match self.swarm.behaviour().stream.new_control().accept(FILE_PROTOCOL) {
             Ok(incoming) => {
-            //tracing::debug!("Successfully accepted FILE_PROTOCOL streams.");
+            //debug!("Successfully accepted FILE_PROTOCOL streams.");
             incoming
         }
         Err(e) => {
-            tracing::error!("Failed to accept inbound streams for FILE_PROTOCOL: {}", e);
+            error!("Failed to accept inbound streams for FILE_PROTOCOL: {}", e);
                 return;
             }
         };
@@ -421,9 +422,9 @@ impl EventLoop {
         // Task that handles inbound streams in parallel, so we don't block the main loop.
         let event_sender_clone = self.event_sender.clone();
         tokio::spawn(async move {
-            tracing::debug!("Listening for incoming FILE_PROTOCOL streams.");
+            debug!("Listening for incoming FILE_PROTOCOL streams.");
             while let Some((peer, stream)) = incoming.next().await {
-                tracing::debug!("Received new stream from peer: {}", peer);
+                debug!("Received new stream from peer: {}", peer);
                 // For demonstration: handle the inbound file request in a new task
                 tokio::spawn(Self::handle_inbound_stream(peer, stream, event_sender_clone.clone()));
             }
@@ -502,23 +503,23 @@ impl EventLoop {
         // Here we do a trivial "echo" of whatever we read.
         
         // read the file name from the substream
-        tracing::debug!("Inbound: Attempting to read from the stream...");
+        debug!("Inbound: Attempting to read from the stream...");
 
         let mut buf = Vec::new();
 
         if let Err(e) = stream.read_to_end(&mut buf).await {
-            tracing::debug!("Inbound: Failed to read inbound stream: {e}");
+            debug!("Inbound: Failed to read inbound stream: {e}");
             return;
         } else {
-            tracing::debug!("Inbound: Successfully read from the stream. {}.", buf.len());
+            debug!("Inbound: Successfully read from the stream. {}.", buf.len());
         }
         let file_name = String::from_utf8_lossy(&buf).to_string();
-        tracing::debug!("Inbound: Writing file data for '{file_name}'...");
+        debug!("Inbound: Writing file data for '{file_name}'...");
 
         // we pass the stream & file-name to the user-land as an event (lib.rs).
-        tracing::debug!("Emitting InboundFileRequest event for file '{file_name}' from peer {peer}");
+        debug!("Emitting InboundFileRequest event for file '{file_name}' from peer {peer}");
         if let Err(e) = event_sender.send(Event::InboundFileRequest { peer, file_name, stream }).await {
-            tracing::debug!("Failed to send inbound stream event: {e}");
+            debug!("Failed to send inbound stream event: {e}");
         }
     }
 
@@ -528,7 +529,7 @@ impl EventLoop {
         match event {
 
             SwarmEvent::Behaviour(CompositeEvent::Rendezvous(event)) => {
-                //tracing::debug!("Rendezvous client event: {:?}", event);
+                //debug!("Rendezvous client event: {:?}", event);
      
                match event { 
                     rendezvous::client::Event::Registered {
@@ -546,12 +547,12 @@ impl EventLoop {
                         namespace,
                         error,
                     } => {
-                    //     tracing::error!(
-                    //         "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
-                    //     rendezvous_node,
-                    //     namespace,
-                    //     error
-                    // );
+                        error!(
+                            "Failed to register: rendezvous_node={}, namespace={}, error_code={:?}",
+                        rendezvous_node,
+                        namespace,
+                        error
+                    );
                     },
                     rendezvous::client::Event::Discovered {
                         registrations,
@@ -583,7 +584,7 @@ impl EventLoop {
                                 //println!("YOUR NEIGHBORS \n {} \n", address_with_p2p);
                                 //if let Err(e) =
                                 let _ = self.swarm.dial(address_with_p2p.clone()); //{
-                                //    tracing::error!("Dial failed: {}", e);
+                                //    error!("Dial failed: {}", e);
                                 //}
                                 self.swarm.behaviour_mut().kademlia.add_address(&peer, address_with_p2p);
                             }
@@ -652,7 +653,7 @@ impl EventLoop {
                             None,
                         ).map_err(|e| e.into()); // Convert RegisterError into anyhow::Error
                         if let Err(ref error) = register_result {
-                            tracing::error!(
+                            error!(
                                 "Failed to register with rendezvous node {}: {}",
                                 peer_id,
                                 error
@@ -688,7 +689,7 @@ impl EventLoop {
             tracing::info!("Disconnected from {}", peer_id);
             }
             other => {
-                tracing::debug!("Unhandled event: {:?}", other);
+                debug!("Unhandled event: {:?}", other);
             }
         }
     }
@@ -782,8 +783,8 @@ impl EventLoop {
                 let res =
                     match open_result {
                         Ok(stream) => {
-                            // tracing::debug!("Successfully opened stream to peer: {}", peer);
-                            tracing::debug!("Writing file name '{}' to the stream...", file_name);
+                            // debug!("Successfully opened stream to peer: {}", peer);
+                            debug!("Writing file name '{}' to the stream...", file_name);
 
                             // Split the stream into read and write halves
                             let (reader, mut writer) = stream.split();
@@ -791,45 +792,45 @@ impl EventLoop {
                             // Conversion from libp2p to tokio
                             let reader = reader.compat(); 
                             if let Err(e) = writer.write_all(file_name.as_bytes()).await {
-                                //tracing::debug!("Failed to write file name to stream: {e}");
+                                //debug!("Failed to write file name to stream: {e}");
                                 Err(anyhow!("Failed to write file name to stream: {}", e))
 
                             } else {
 
-                                tracing::debug!("Written file name '{}' to stream.", file_name);
+                                debug!("Written file name '{}' to stream.", file_name);
                                 // 2) Shutdown the write side to signal EOF
                                 if let Err(e) = writer.flush().await {
-                                    //tracing::debug!("Failed to shutdown write half of the stream: {e}");
+                                    //debug!("Failed to shutdown write half of the stream: {e}");
                                     Err(anyhow!("Failed to shutdown write half of the stream: {}", e))
                                     
                                 } else {
                                     writer.close().await.unwrap();
 
-                                    tracing::debug!("Write side of the stream successfully closed.");
+                                    debug!("Write side of the stream successfully closed.");
 
                                     let directory_path = format!("{}", get_storage_dir());
                                     let dir_path = std::path::Path::new(&directory_path);
-                                    //tracing::debug!("Calling receive_file_with_hash for file: {:?}", dir_path);
+                                    //debug!("Calling receive_file_with_hash for file: {:?}", dir_path);
 
                                     match receive_file_with_hash(reader, dir_path).await {
                                         Ok(cid) => {
-                                            tracing::debug!("File received successfully at {:?}", dir_path);
+                                            debug!("File received successfully at {:?}", dir_path);
                                             
                                             let final_path = format!("{}{}.bin", dir_path.display(), cid);
 
                                             match std::fs::read(final_path) {
                                                 Ok(file_bytes) => {
-                                                    //tracing::debug!("File read into memory successfully. Bytes: {}", file_bytes.len());
+                                                    //debug!("File read into memory successfully. Bytes: {}", file_bytes.len());
                                                     Ok((file_bytes, cid))
                                                 }
                                                 Err(e) => {
-                                                    //tracing::debug!("Failed to read file from disk: {e}");
+                                                    //debug!("Failed to read file from disk: {e}");
                                                     Err(anyhow!("Failed to read file from disk: {}", e))
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            //tracing::debug!("Error during receive_file_with_hash: {e}");
+                                            //debug!("Error during receive_file_with_hash: {e}");
                                             Err(anyhow!("Error during receive_file_with_hash: {}", e))
                                         }
                                     }
@@ -837,7 +838,7 @@ impl EventLoop {
                             }
                         }
                         Err(e) => {
-                            //tracing::debug!("Failed to open stream to peer {}: {e}", peer);
+                            //debug!("Failed to open stream to peer {}: {e}", peer);
                             Err(anyhow!("Failed to open stream to peer {}: {}", peer, e))
                         }
                     };

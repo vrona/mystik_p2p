@@ -12,6 +12,7 @@ pub struct NodeConfig {
     pub fix_addr_2: Option<Multiaddr>,
     pub peer_id_1: Option<PeerId>,
     pub peer_id_2: Option<PeerId>,
+    pub namespace: Option<String>,
 }
 
 /// Function to load the appropriate environment variables
@@ -62,6 +63,7 @@ pub fn load_node_config(chosen_node: &str) -> Result<NodeConfig, Box<dyn Error>>
     let fix_addr_2 = env::var("FIX_ADDR_2" ).ok().and_then(|s|s.parse::<Multiaddr>().ok());
     let peer_id_1 = env::var("PEER_ID_1").ok().and_then(|s|s.parse::<PeerId>().ok());
     let peer_id_2 = env::var("PEER_ID_2").ok().and_then(|s|s.parse::<PeerId>().ok());
+    let namespace = env::var("NAMESPACE").ok().and_then(|s|s.parse::<String>().ok());
 
     Ok(NodeConfig {
         secret_seed,
@@ -70,5 +72,6 @@ pub fn load_node_config(chosen_node: &str) -> Result<NodeConfig, Box<dyn Error>>
         fix_addr_2,
         peer_id_1,
         peer_id_2,
+        namespace,
     })
 }

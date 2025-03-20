@@ -2,10 +2,28 @@
 - [x] Persistent storage mechanism (with CID)
 - [x] Encryption of content
 - [x] Metadata organization and storage
-- [x] When Blake3 verification (add sign the Hash: To ensure authenticity and prevent tampering, sign the hash with a private key (e.g., using Ed25519) and have the receiver verify the signature.)
-- [ ] Transmit from Node A to B the listening Node (avoid hard code)
+- [x] When Blake3 verification (add sign the Hash: To ensure authenticity and prevent tampering)
+- [x] Transmit from Node A to B the listening Node (avoid hard code)
+- [x] Client router to access node's command
 
+## Nodes discovery to connection
+- [ ] Real-world cases Rendez-vous Nodes address setting dispatch (several fix nodes addresses: 3 addresses)
+- [ ] Robust Search Recovery of Regular Nodes to search the bootstrap nodes (among the 3 rendez-vous)
+## Content publishing to DHT
+- [ ] Make a periodic version of init_publishing_mid_to_dht()
+## Variable
+- [ ] Add a Settings files (config + json) to replace the node_config.rs + env file
+- [ ] Globalized the "const STORAGE" variables
+- [ ] Create the input for Exchange Protocol like an hash to replace "File-exchange/1"
+- [ ] At Decryption files: check decryption folder existence if not create one
+## DID and KMS
+- [ ] key, nonce management (hold them and sharing to the request.)
+- [ ] DID (access control, user/agent and node)
+## File requesting (via get_file)
+- [ ] Add resilient error-handling, timeouts, and possibly retry policies.
 
+## Final product
+- [ ] Assess the creation of an API
 - [-] FHE of Metadata (ask to DHT)
-- [ ] Client router to access node's command
-- [ ] Deployment on Docker
+- [-] Deployment on Docker
+- [-] After signing the Blake3 hash with a private key (e.g., using Ed25519) and have the receiver verify the signature

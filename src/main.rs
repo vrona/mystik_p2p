@@ -126,11 +126,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             });
 
             // regular node register to rendezvous node
-            let namespace = "rendezvous";
+            let namespace = config.namespace.expect("Check if Autonomous node has a namespece set up");
+            // Convert the String into a &'static str by leaking it.
+            let namespace_static: &'static str = Box::leak(namespace.into_boxed_str());
+            
             let _register = autonomos_node.lock().await.register_rendezvous(
                 config.fix_addr_1.unwrap(), // "/ip4/127.0.0.1/udp/9000/quic-v1".parse::<Multiaddr>().unwrap(), // , 
-                config.peer_id_1.unwrap(), 
-                namespace).await;
+                config.peer_id_1.unwrap(),
+                namespace_static).await;
             
             // publish persistent mid if any to DHT
             let _publish_to_dht = autonomos_node.lock().await.init_publishing_mid_to_dht().await;
@@ -224,15 +227,7 @@ async fn command_loop_syndesmos(
                         Ok(()) => println!("File spreaded on DHT successfully!"),
                         Err(e) => eprintln!("Error spreaded on DHT: {}", e),
                         }
-                    }
-                    // // Spawn the inbound answer loop as a separate task.
-                    // let syndesmos_clone = syndesmos.clone(); // <-- clone the Arc!
-                    // tokio::spawn(async move {
-                    //     let mut synd = syndesmos_clone.lock().await;
-                    //     if let Err(e) = synd.launch_inbound_request_task().await {
-                    //         eprintln!("Error transmitting file in inbound handler: {}", e);
-                    //     }
-                    // });                    
+                    }             
                 }
             }
             "call" => {
@@ -391,14 +386,6 @@ async fn command_loop_autonomos(
                         Err(e) => eprintln!("Error spreaded on DHT: {}", e),
                         }
                     }
-                    // // Spawn the inbound answer loop as a separate task.
-                    // let autonomos_clone = autonomos.clone(); // <-- clone the Arc!
-                    // tokio::spawn(async move {
-                    //     let mut auto = autonomos_clone.lock().await;
-                    //     if let Err(e) = auto.launch_inbound_request_task().await {
-                    //         eprintln!("Error transmitting file in inbound handler: {}", e);
-                    //     }
-                    // });
                 }
             }
             "call" => {

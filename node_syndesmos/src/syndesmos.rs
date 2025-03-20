@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Error as AnyhowError};
-use content_hashing::blakecheck::receive_file_with_hash;
+use content_hashing::{blakecheck::receive_file_with_hash, get_storage_dir}; // STORAGE_DIR
 // use std::io::Write;
 use libp2p::kad::KBucketKey;
 
@@ -41,11 +41,6 @@ use tokio_util::compat::FuturesAsyncReadCompatExt; // try to make compatibility 
 
 /// A custom protocol tag for our file-exchange streams.
 const FILE_PROTOCOL: StreamProtocol = StreamProtocol::new("/file-exchange/1");
-
-// pub const STORAGE_DIR: &str = "./data/content/";
-pub fn get_storage_dir() -> String {
-    std::env::var("STORAGE_DIR").unwrap_or_else(|_| "./data/content/".to_string())
-}
 
 /// We define a "flattened" event type so that we can handle both in one `SwarmEvent`.
 /// [`NetworkBehaviour`] Composite network behaviour that combines relay, ping, identify, Kademlia (DHT), Streams.

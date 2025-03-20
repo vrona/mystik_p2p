@@ -1,4 +1,4 @@
-use dotenv::dotenv;
+use dotenv;
 use std::env;
 use std::error::Error;
 use std::io::{self, Write};
@@ -9,9 +9,9 @@ pub struct NodeConfig {
     pub secret_seed: Option<u8>,
     pub listen_addr: Option<Multiaddr>,
     pub fix_addr_1: Option<Multiaddr>,
-    pub fix_addr_2: Option<Multiaddr>,
+    pub _fix_addr_2: Option<Multiaddr>,
     pub peer_id_1: Option<PeerId>,
-    pub peer_id_2: Option<PeerId>,
+    pub _peer_id_2: Option<PeerId>,
     pub namespace: Option<String>,
 }
 
@@ -60,18 +60,18 @@ pub fn load_node_config(chosen_node: &str) -> Result<NodeConfig, Box<dyn Error>>
     let secret_seed = env::var("SECRET_SEED").ok().and_then(|s| s.parse::<u8>().ok());
     let listen_addr = env::var("LISTEN_ADDRESS").ok().and_then(|s| s.parse::<Multiaddr>().ok());
     let fix_addr_1 = env::var("FIX_ADDR_1" ).ok().and_then(|s|s.parse::<Multiaddr>().ok());
-    let fix_addr_2 = env::var("FIX_ADDR_2" ).ok().and_then(|s|s.parse::<Multiaddr>().ok());
+    let _fix_addr_2 = env::var("FIX_ADDR_2" ).ok().and_then(|s|s.parse::<Multiaddr>().ok());
     let peer_id_1 = env::var("PEER_ID_1").ok().and_then(|s|s.parse::<PeerId>().ok());
-    let peer_id_2 = env::var("PEER_ID_2").ok().and_then(|s|s.parse::<PeerId>().ok());
+    let _peer_id_2 = env::var("PEER_ID_2").ok().and_then(|s|s.parse::<PeerId>().ok());
     let namespace = env::var("NAMESPACE").ok().and_then(|s|s.parse::<String>().ok());
 
     Ok(NodeConfig {
         secret_seed,
         listen_addr,
         fix_addr_1,
-        fix_addr_2,
+        _fix_addr_2,
         peer_id_1,
-        peer_id_2,
+        _peer_id_2,
         namespace,
     })
 }

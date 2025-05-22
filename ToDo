@@ -6,24 +6,51 @@
 - [x] Transmit from Node A to B the listening Node (avoid hard code)
 - [x] Client router to access node's command
 
+## Nodes access
+- [ ] Human POV: UI (app with upload, download, accesses)
+- [ ] AI Agent POV: Programmatic access to storage (encryption, decryption, spread, get, ...) and inference (python model)
+
 ## Nodes discovery to connection
-- [ ] Real-world cases Rendez-vous Nodes address setting dispatch (several fix nodes addresses: 3 addresses)
+- [ ] Real-world cases Rendez-Vous Nodes address setting dispatch (several fix nodes addresses: 3 addresses)
+- [ ] Each Rendez-Vous can support 4 Regular Nodes rule
 - [ ] Robust Search Recovery of Regular Nodes to search the bootstrap nodes (among the 3 rendez-vous)
+- [ ] add mDNS
+- [ ] (DoS mitigation)
+
+## Logs
+- [ ] add logs of node (folder and records)
+
 ## Content publishing to DHT
 - [ ] Make a periodic version of init_publishing_mid_to_dht()
-## Variable
-- [ ] Add a Settings files (config + json) to replace the node_config.rs + env file
-- [ ] Globalized the "const STORAGE" variables
-- [ ] Create the input for Exchange Protocol like an hash to replace "File-exchange/1"
-- [ ] At Decryption files: check decryption folder existence if not create one
+- [ ] Add Deleted_Content to update DHT
+
+## Check Gossip
+- [ ] checked
+
 ## DID and KMS
-- [ ] key, nonce management (hold them and sharing to the request.)
-- [ ] DID (access control, user/agent and node)
+- [ ] key, nonce management (hold them and sharing to the request)
+- [ ] DID (access control, user/agent and node), based on DID, mystik knows if you are an agent.
+    - [ ] User / AI agent	did:key: or did:web:
+    - [ ] Physical node did:ion:
+
+## Config-Input
+- [ ] Add a Settings files (config + json) to replace the node_config.rs + env file + convert some configs into input
+- [ ] Create the input for Exchange Protocol like an hash to replace "File-exchange/1"
+- [ ] Create the input for mDNS definitions (service-name, host-name, peer-name) ["mDNS"]("https://github.com/libp2p/specs/blob/master/discovery/mdns.md")
+- [ ] Globalized the "const STORAGE" variables
+
+## API
+- [ ] Assess the creation of an API: REST or gRPC?
+- [ ] Add configuration input (see Config-Input)
+- [ ] Add the functions (create, spread, get, ...)
+
+## Miscellaneous
+- [ ] when decrypting files: check decryption folder existence if not create one
+
 ## File requesting (via get_file)
 - [ ] Add resilient error-handling, timeouts, and possibly retry policies.
 
 ## Final product
-- [ ] Assess the creation of an API
 - [-] FHE of Metadata (ask to DHT)
 - [-] Deployment on Docker
 - [-] After signing the Blake3 hash with a private key (e.g., using Ed25519) and have the receiver verify the signature

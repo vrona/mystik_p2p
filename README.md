@@ -5,11 +5,11 @@ A persistent storage peer to peer network based on [rust-libp2P](https://github.
 ## Mechanism
 A user from a local node encrypted a file.<br>
 
-This encrypted file obtain a CID and is stored into local node.
+This encrypted file obtain a **CID** and is stored into local node.
 At the same time the user add metadata to enable future queries from remote nodes
 Metadata are name, filetype, secret code.<br>
 
-Each of them is actually a leaf in a merkle tree where the root is actually the MID.<br>
+Each of them is actually a leaf in a merkle tree where the root is actually the **MID**.<br>
 
 In the local node then, a sparse merkle tree stores the MID / CID pair
 Then, the MID is published to the network (as a DHT table: MID / Node’s address pair).

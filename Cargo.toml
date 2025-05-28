@@ -13,7 +13,7 @@ members = [
     "node_syndesmos",
     "db-access",
     "phantomg",
-    "phantoms",
+    "phantoms", "wallet",
 ]
 
 resolver = "2"

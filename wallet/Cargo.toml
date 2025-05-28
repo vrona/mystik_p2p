@@ -1,0 +1,13 @@
+[package]
+name = "wallet"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+# Stronghold vault + JWK wrapper
+identity_stronghold = "1.5.1"
+# the secret-manager builder lives in iota-sdk; enable its stronghold feature
+iota-sdk = { version = "1.1.5", features = ["stronghold"] }
+
+tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread"] }

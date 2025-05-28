@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+didcomm = "0.4.1"
 ssi-dids = "0.2.1"
-ssi = "0.11.0"
-didcomm = { package = "didcomm-rs", version = "0.4" }
+ssi = { version = "0.11.0", default-features = false, features = ["ed25519"] }

@@ -1,6 +1,8 @@
-# MYSTIK
+# MYSTIK>P2P
 
 A persistent storage peer to peer network based on [rust-libp2P](https://github.com/libp2p).
+
+![P2P_PersistentStorage](image/P2P_PersistentStorage.png)
 
 ## Mechanism
 A user from a local node encrypted a file.<br>
